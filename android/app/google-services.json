@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "741661404494",
+    "project_id": "kandangku-8f67c",
+    "storage_bucket": "kandangku-8f67c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:741661404494:android:112fe81298873ae304421f",
+        "android_client_info": {
+          "package_name": "com.example.kandangku"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDN0N2u2SmpEwAaDTEx16RNanWLkjTtfac"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
