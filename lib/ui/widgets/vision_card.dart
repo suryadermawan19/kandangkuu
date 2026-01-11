@@ -14,11 +14,11 @@ class VisionCard extends StatelessWidget {
     IconData statusIcon;
 
     if (visionScore < 40) {
-      behaviorLabel = 'High Risk (Huddling)';
+      behaviorLabel = 'Chickens Huddling - Cold Warning';
       statusColor = Colors.red;
       statusIcon = Icons.warning;
     } else if (visionScore < 70) {
-      behaviorLabel = 'Moderate (Fair Dist.)';
+      behaviorLabel = 'Moderate Distribution';
       statusColor = Colors.orange;
       statusIcon = Icons.info;
     } else {

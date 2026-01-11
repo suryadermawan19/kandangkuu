@@ -119,7 +119,7 @@ class FirebaseService {
     try {
       QuerySnapshot snapshot = await _firestore
           .collection('telemetry_history')
-          .orderBy('timestamp', descending: true)
+          .orderBy('last_update', descending: true)
           .limit(20) // Limit to last 20 readings for the chart
           .get();
 

@@ -13,10 +13,6 @@ const HYSTERESIS_BUFFER_AMMONIA = 2.0;
 const MIN_RUN_TIME_MS = 5 * 60 * 1000; // 5 minutes
 
 exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async (event) => {
-  // In v2, changes are in event.data
-  // event.data.before (Snapshot)
-  // event.data.after (Snapshot)
-
   if (!event.data) return null;
 
   const newData = event.data.after.data();
@@ -31,6 +27,7 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
   const feedWeight = newData.feed_weight || 0;
   const waterLevel = newData.water_level || "Unknown";
 
+  // Explicit check for is_auto_mode boolean
   const isAutoMode = newData.is_auto_mode === true;
 
   const updates = {};
@@ -99,6 +96,7 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
 
   const sendAlerts = [];
 
+  // Alert logic as requested: Temp > 30, Ammonia > 20, Feed < 1.0, Water Empty
   if (ammonia > 20 && prevAmmonia <= 20) sendAlerts.push(`High Ammonia: ${ammonia} ppm`);
   if (temp > 30 && prevTemp <= 30) sendAlerts.push(`High Temperature: ${temp}°C`);
   if (feedWeight < 1.0 && prevFeed >= 1.0) sendAlerts.push(`Low Feed: ${feedWeight} kg`);
