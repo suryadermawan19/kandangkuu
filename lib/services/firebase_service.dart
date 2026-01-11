@@ -9,6 +9,13 @@ class FirebaseService {
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
 
+  FirebaseService() {
+    _firestore.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    );
+  }
+
   // Collection and Doc references
   static const String _collectionName = 'coops';
   static const String _docId = 'kandang_01';
@@ -52,10 +59,15 @@ class FirebaseService {
   }
 
   // Actuator Control (Manual Override)
-  Future<void> updateActuatorState({bool? isFanOn, bool? isHeaterOn}) async {
+  Future<void> updateActuatorState({
+    bool? isFanOn,
+    bool? isHeaterOn,
+    bool? isAutoMode,
+  }) async {
     Map<String, dynamic> updates = {};
     if (isFanOn != null) updates['fan_status'] = isFanOn;
     if (isHeaterOn != null) updates['heater_status'] = isHeaterOn;
+    if (isAutoMode != null) updates['is_auto_mode'] = isAutoMode;
 
     if (updates.isNotEmpty) {
       await _firestore

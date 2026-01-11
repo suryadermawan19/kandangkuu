@@ -8,11 +8,24 @@ class VisionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Determine status color/text based on score
-    // Assuming score > 40 is Good
-    bool isHealthy = visionScore >= 40;
-    Color statusColor = isHealthy ? Colors.green : Colors.orange;
-    String statusText = isHealthy ? 'Healthy Flock' : 'Attention Needed';
+    // Behavior mapping
+    String behaviorLabel;
+    Color statusColor;
+    IconData statusIcon;
+
+    if (visionScore < 40) {
+      behaviorLabel = 'High Risk (Huddling)';
+      statusColor = Colors.red;
+      statusIcon = Icons.warning;
+    } else if (visionScore < 70) {
+      behaviorLabel = 'Moderate (Fair Dist.)';
+      statusColor = Colors.orange;
+      statusIcon = Icons.info;
+    } else {
+      behaviorLabel = 'Optimal (Healthy)';
+      statusColor = Colors.green;
+      statusIcon = Icons.check_circle;
+    }
 
     return Container(
       width: double.infinity,
@@ -46,14 +59,10 @@ class VisionCard extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      isHealthy ? Icons.check_circle : Icons.warning,
-                      color: statusColor,
-                      size: 16,
-                    ),
+                    Icon(statusIcon, color: statusColor, size: 16),
                     const SizedBox(width: 6),
                     Text(
-                      '$statusText ($visionScore)',
+                      '$behaviorLabel ($visionScore)',
                       style: TextStyle(
                         color: statusColor,
                         fontWeight: FontWeight.bold,

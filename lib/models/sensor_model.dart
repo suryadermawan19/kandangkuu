@@ -8,6 +8,7 @@ class SensorModel {
   final String imagePath;
   final bool isFanOn; // Helper status if available, optional
   final bool isHeaterOn; // Helper status if available, optional
+  final bool isAutoMode;
 
   SensorModel({
     required this.temperature,
@@ -19,6 +20,7 @@ class SensorModel {
     required this.imagePath,
     this.isFanOn = false,
     this.isHeaterOn = false,
+    this.isAutoMode = true,
   });
 
   // Factory method to map from Firestore JSON
@@ -35,6 +37,7 @@ class SensorModel {
       // For now defaulting to false if not in doc
       isFanOn: json['fan_status'] as bool? ?? false,
       isHeaterOn: json['heater_status'] as bool? ?? false,
+      isAutoMode: json['is_auto_mode'] as bool? ?? true,
     );
   }
 
@@ -49,6 +52,7 @@ class SensorModel {
       'image_path': imagePath,
       'fan_status': isFanOn,
       'heater_status': isHeaterOn,
+      'is_auto_mode': isAutoMode,
     };
   }
 }

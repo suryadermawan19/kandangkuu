@@ -124,13 +124,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 24),
 
             // Actuators
-            const Text(
-              'Actuator Controls (Manual)',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Actuator Controls',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                // System Mode Switch
+                Row(
+                  children: [
+                    Text(
+                      sensorData.isAutoMode ? 'Auto Mode' : 'Manual Mode',
+                      style: TextStyle(
+                        color: sensorData.isAutoMode
+                            ? Colors.blue
+                            : Colors.grey,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Switch(
+                      value: sensorData.isAutoMode,
+                      onChanged: (val) =>
+                          firebaseService.updateActuatorState(isAutoMode: val),
+                      activeColor: Colors.blue,
+                    ),
+                  ],
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             Container(
@@ -141,21 +166,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               child: Column(
                 children: [
-                  _buildSwitchRow(
-                    'Exhaust Fan',
-                    sensorData.isFanOn,
-                    (val) => firebaseService.updateActuatorState(isFanOn: val),
-                    FontAwesomeIcons.fan,
-                    Colors.blue,
-                  ),
-                  const Divider(color: Colors.grey),
-                  _buildSwitchRow(
-                    'Heater',
-                    sensorData.isHeaterOn,
-                    (val) =>
-                        firebaseService.updateActuatorState(isHeaterOn: val),
-                    FontAwesomeIcons.fire,
-                    Colors.red,
+                  // Conditional Controls: Disabled if Auto Mode is ON
+                  IgnorePointer(
+                    ignoring: sensorData.isAutoMode,
+                    child: Opacity(
+                      opacity: sensorData.isAutoMode ? 0.5 : 1.0,
+                      child: Column(
+                        children: [
+                          _buildSwitchRow(
+                            'Exhaust Fan',
+                            sensorData.isFanOn,
+                            (val) => firebaseService.updateActuatorState(
+                              isFanOn: val,
+                            ),
+                            FontAwesomeIcons.fan,
+                            Colors.blue,
+                          ),
+                          const Divider(color: Colors.grey),
+                          _buildSwitchRow(
+                            'Heater',
+                            sensorData.isHeaterOn,
+                            (val) => firebaseService.updateActuatorState(
+                              isHeaterOn: val,
+                            ),
+                            FontAwesomeIcons.fire,
+                            Colors.red,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
