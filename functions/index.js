@@ -143,8 +143,8 @@ exports.dailyStats = onSchedule({
 
   try {
     const snapshot = await historyRef
-      .where('timestamp', '>=', startOfYesterday)
-      .where('timestamp', '<=', endOfYesterday)
+      .where('last_update', '>=', startOfYesterday)
+      .where('last_update', '<=', endOfYesterday)
       .get();
 
     if (snapshot.empty) {
@@ -209,7 +209,7 @@ exports.updateTelemetry = onRequest({ cors: true }, async (request, response) =>
       temperature: Number(temperature),
       humidity: Number(humidity),
       ammonia: Number(ammonia),
-      last_updated: timestamp
+      last_update: timestamp
     }, { merge: true });
 
     // 2. Add History Entry
@@ -218,7 +218,7 @@ exports.updateTelemetry = onRequest({ cors: true }, async (request, response) =>
       temperature: Number(temperature),
       humidity: Number(humidity),
       ammonia: Number(ammonia),
-      timestamp: timestamp
+      last_update: timestamp
     });
 
     await batch.commit();

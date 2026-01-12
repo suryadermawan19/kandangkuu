@@ -4,7 +4,6 @@ import 'package:kandangku/models/sensor_model.dart';
 import 'package:kandangku/services/firebase_service.dart';
 import 'package:kandangku/ui/screens/dashboard_screen.dart';
 import 'package:provider/provider.dart';
-
 import 'firebase_options.dart';
 
 void main() async {
