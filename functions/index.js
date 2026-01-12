@@ -1,6 +1,7 @@
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { setGlobalOptions } = require('firebase-functions/v2');
+const { onRequest } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 
 admin.initializeApp();
@@ -178,5 +179,53 @@ exports.dailyStats = onSchedule({
   } catch (error) {
     console.error('Error in dailyStats:', error);
     return null;
+  }
+});
+
+// HTTP Function to receive telemetry from IoT device
+// Ideally, secure this with an API Key or Auth token
+exports.updateTelemetry = onRequest({ cors: true }, async (request, response) => {
+  // Check for POST method
+  if (request.method !== 'POST') {
+    response.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  const { temperature, humidity, ammonia } = request.body;
+
+  // Basic validation
+  if (temperature === undefined || humidity === undefined || ammonia === undefined) {
+    response.status(400).send('Missing required fields: temperature, humidity, ammonia');
+    return;
+  }
+
+  try {
+    const timestamp = admin.firestore.Timestamp.now();
+    const batch = admin.firestore().batch();
+
+    // 1. Update Current State
+    const coopRef = admin.firestore().collection('coops').doc('kandang_01');
+    batch.set(coopRef, {
+      temperature: Number(temperature),
+      humidity: Number(humidity),
+      ammonia: Number(ammonia),
+      last_updated: timestamp
+    }, { merge: true });
+
+    // 2. Add History Entry
+    const historyRef = admin.firestore().collection('telemetry_history').doc();
+    batch.set(historyRef, {
+      temperature: Number(temperature),
+      humidity: Number(humidity),
+      ammonia: Number(ammonia),
+      timestamp: timestamp
+    });
+
+    await batch.commit();
+
+    response.status(200).json({ status: 'success', message: 'Telemetry updated' });
+  } catch (error) {
+    console.error('Error updating telemetry:', error);
+    response.status(500).send('Internal Server Error');
   }
 });
