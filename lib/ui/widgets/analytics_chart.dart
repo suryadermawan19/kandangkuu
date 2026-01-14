@@ -1,5 +1,6 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:kandangku/ui/theme/app_theme.dart';
 
 class AnalyticsChart extends StatelessWidget {
   final List<Map<String, dynamic>> historyData;
@@ -12,11 +13,25 @@ class AnalyticsChart extends StatelessWidget {
       return Container(
         height: 200,
         decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
+          color: AppTheme.cardBackground,
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: AppTheme.textDisabled.withValues(alpha: 0.2),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        child: const Center(
-          child: Text('No History Data', style: TextStyle(color: Colors.grey)),
+        child: Center(
+          child: Text(
+            'Tidak Ada Data Riwayat',
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+          ),
         ),
       );
     }
@@ -38,31 +53,63 @@ class AnalyticsChart extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
+        color: AppTheme.cardBackground,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppTheme.textDisabled.withValues(alpha: 0.2),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'History Trends',
+          Text(
+            'Tren Riwayat',
             style: TextStyle(
               fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textPrimary,
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           SizedBox(
             height: 200,
             child: LineChart(
               LineChartData(
-                gridData: FlGridData(show: true, drawVerticalLine: false),
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  getDrawingHorizontalLine: (value) {
+                    return FlLine(
+                      color: AppTheme.textDisabled.withValues(alpha: 0.2),
+                      strokeWidth: 1,
+                    );
+                  },
+                ),
                 titlesData: FlTitlesData(
                   leftTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: true, reservedSize: 40),
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 40,
+                      getTitlesWidget: (value, meta) {
+                        return Text(
+                          value.toInt().toString(),
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 12,
+                          ),
+                        );
+                      },
+                    ),
                   ),
                   bottomTitles: AxisTitles(
                     sideTitles: SideTitles(
@@ -87,7 +134,7 @@ class AnalyticsChart extends StatelessWidget {
                     dotData: FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
-                      color: Colors.orange.withValues(alpha: 0.1),
+                      color: Colors.orange.withValues(alpha: 0.15),
                     ),
                   ),
                   // Ammonia Line
@@ -99,20 +146,20 @@ class AnalyticsChart extends StatelessWidget {
                     dotData: FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
-                      color: Colors.purple.withValues(alpha: 0.1),
+                      color: Colors.purple.withValues(alpha: 0.15),
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildLegend('Temp (°C)', Colors.orange),
-              const SizedBox(width: 20),
-              _buildLegend('Ammonia (ppm)', Colors.purple),
+              _buildLegend('Suhu (°C)', Colors.orange),
+              const SizedBox(width: 24),
+              _buildLegend('Amonia (ppm)', Colors.purple),
             ],
           ),
         ],
@@ -123,9 +170,23 @@ class AnalyticsChart extends StatelessWidget {
   Widget _buildLegend(String label, Color color) {
     return Row(
       children: [
-        Container(width: 12, height: 12, color: color),
-        const SizedBox(width: 4),
-        Text(label, style: const TextStyle(color: Colors.white)),
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }

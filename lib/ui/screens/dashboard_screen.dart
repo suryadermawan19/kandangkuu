@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:kandangku/models/sensor_model.dart';
 import 'package:kandangku/services/firebase_service.dart';
-import 'package:kandangku/ui/widgets/monitoring_card.dart';
+import 'package:kandangku/ui/widgets/clean_sensor_card.dart';
 import 'package:kandangku/ui/widgets/vision_card.dart';
 import 'package:kandangku/ui/widgets/analytics_chart.dart';
+import 'package:kandangku/ui/widgets/safe_control_panel.dart';
+import 'package:kandangku/ui/theme/app_theme.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -44,20 +45,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212), // Dark Monitor BG
+      backgroundColor: AppTheme.lightBackground,
       appBar: AppBar(
-        title: const Text(
-          'PoultryVision',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Row(
+          children: [
+            Icon(Icons.agriculture, color: AppTheme.statusGreen, size: 28),
+            const SizedBox(width: 12),
+            Text(
+              'PoultryVision',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 22,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+          ],
         ),
-        backgroundColor: const Color(0xFF1E1E1E),
+        backgroundColor: AppTheme.cardBackground,
         elevation: 0,
+        iconTheme: IconThemeData(color: AppTheme.textPrimary),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchHistory),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _fetchHistory,
+            tooltip: 'Refresh data',
+          ),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -68,164 +84,108 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   : null,
               visionScore: sensorData.visionScore,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
             // Sensor Grid
             GridView.count(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.1,
+              crossAxisSpacing: 20,
+              mainAxisSpacing: 20,
+              childAspectRatio: 0.95,
               children: [
-                MonitoringCard(
-                  icon: FontAwesomeIcons.temperatureHigh,
-                  label: 'Temperature',
+                CleanSensorCard(
+                  icon: Icons.thermostat,
+                  label: 'Suhu',
                   value: sensorData.temperature.toStringAsFixed(1),
                   unit: '°C',
-                  color: Colors.orange,
-                  status: sensorData.temperature > 30 ? 'High' : 'OK',
+                  statusColor: AppTheme.getTemperatureStatusColor(
+                    sensorData.temperature,
+                  ),
+                  statusText: sensorData.temperature > 30
+                      ? 'TINGGI'
+                      : (sensorData.temperature < 24 ? 'RENDAH' : 'NORMAL'),
+                  isCritical:
+                      sensorData.temperature > 32 ||
+                      sensorData.temperature < 22,
                 ),
-                MonitoringCard(
-                  icon: FontAwesomeIcons.droplet,
-                  label: 'Humidity',
+                CleanSensorCard(
+                  icon: Icons.water_drop,
+                  label: 'Kelembapan',
                   value: sensorData.humidity.toStringAsFixed(1),
                   unit: '%',
-                  color: Colors.blue,
+                  statusColor: AppTheme.getHumidityStatusColor(
+                    sensorData.humidity,
+                  ),
+                  statusText:
+                      (sensorData.humidity > 70 || sensorData.humidity < 45)
+                      ? 'CHECK'
+                      : 'OK',
                 ),
-                MonitoringCard(
-                  icon: FontAwesomeIcons.wind,
-                  label: 'Ammonia',
+                CleanSensorCard(
+                  icon: Icons.air,
+                  label: 'Amonia',
                   value: sensorData.ammonia.toStringAsFixed(1),
                   unit: 'ppm',
-                  color: Colors.purple,
-                  status: sensorData.ammonia > 20 ? 'Critical' : 'Safe',
+                  statusColor: AppTheme.getAmmoniaStatusColor(
+                    sensorData.ammonia,
+                  ),
+                  statusText: sensorData.ammonia > 20
+                      ? 'BAHAYA'
+                      : (sensorData.ammonia > 15 ? 'AWAS' : 'AMAN'),
+                  isCritical: sensorData.ammonia > 20,
                 ),
-                MonitoringCard(
-                  icon: FontAwesomeIcons.weightHanging,
-                  label: 'Feed Weight',
+                CleanSensorCard(
+                  icon: Icons.scale,
+                  label: 'Berat Pakan',
                   value: sensorData.feedWeight.toStringAsFixed(1),
                   unit: 'kg',
-                  color: Colors.brown,
+                  statusColor: AppTheme.getFeedWeightStatusColor(
+                    sensorData.feedWeight,
+                  ),
+                  statusText: sensorData.feedWeight < 10
+                      ? 'ISI ULANG'
+                      : (sensorData.feedWeight < 20 ? 'RENDAH' : 'NORMAL'),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
             // Water Level (Full Width)
-            MonitoringCard(
-              icon: FontAwesomeIcons.glassWater,
-              label: 'Water Level Status',
+            CleanSensorCard(
+              icon: Icons.local_drink,
+              label: 'Level Air',
               value: sensorData.waterLevel,
-              color: Colors.cyan,
-              status: sensorData.waterLevel,
+              statusColor: AppTheme.getWaterLevelStatusColor(
+                sensorData.waterLevel,
+              ),
+              statusText: sensorData.waterLevel.toUpperCase(),
+              isCritical: sensorData.waterLevel.toLowerCase() == 'kosong',
             ),
             const SizedBox(height: 24),
 
-            // Actuators
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Actuator Controls',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                // System Mode Switch
-                Row(
-                  children: [
-                    Text(
-                      sensorData.isAutoMode ? 'Auto Mode' : 'Manual Mode',
-                      style: TextStyle(
-                        color: sensorData.isAutoMode
-                            ? Colors.blue
-                            : Colors.grey,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Switch(
-                      value: sensorData.isAutoMode,
-                      onChanged: (val) =>
-                          firebaseService.updateActuatorState(isAutoMode: val),
-                      activeColor: Colors.blue,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                children: [
-                  // Conditional Controls: Disabled if Auto Mode is ON
-                  IgnorePointer(
-                    ignoring: sensorData.isAutoMode,
-                    child: Opacity(
-                      opacity: sensorData.isAutoMode ? 0.5 : 1.0,
-                      child: Column(
-                        children: [
-                          _buildSwitchRow(
-                            'Exhaust Fan',
-                            sensorData.isFanOn,
-                            (val) => firebaseService.updateActuatorState(
-                              isFanOn: val,
-                            ),
-                            FontAwesomeIcons.fan,
-                            Colors.blue,
-                          ),
-                          const Divider(color: Colors.grey),
-                          _buildSwitchRow(
-                            'Heater',
-                            sensorData.isHeaterOn,
-                            (val) => firebaseService.updateActuatorState(
-                              isHeaterOn: val,
-                            ),
-                            FontAwesomeIcons.fire,
-                            Colors.red,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            // Safe Control Panel
+            SafeControlPanel(
+              isAutoMode: sensorData.isAutoMode,
+              isFanOn: sensorData.isFanOn,
+              isHeaterOn: sensorData.isHeaterOn,
+              onAutoModeChanged: (val) =>
+                  firebaseService.updateActuatorState(isAutoMode: val),
+              onFanChanged: (val) =>
+                  firebaseService.updateActuatorState(isFanOn: val),
+              onHeaterChanged: (val) =>
+                  firebaseService.updateActuatorState(isHeaterOn: val),
             ),
 
             const SizedBox(height: 24),
 
-            // Analytics
+            // Analytics Chart
             AnalyticsChart(historyData: _historyData),
-            const SizedBox(height: 40),
+            const SizedBox(height: 60),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildSwitchRow(
-    String label,
-    bool value,
-    Function(bool) onChanged,
-    IconData icon,
-    Color color,
-  ) {
-    return Row(
-      children: [
-        Icon(icon, color: color),
-        const SizedBox(width: 16),
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 16)),
-        const Spacer(),
-        Switch(value: value, onChanged: onChanged, activeColor: color),
-      ],
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:kandangku/models/sensor_model.dart';
 import 'package:kandangku/services/firebase_service.dart';
 import 'package:kandangku/ui/screens/dashboard_screen.dart';
+import 'package:kandangku/ui/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 
@@ -37,19 +38,8 @@ class PoultryVisionApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'PoultryVision Dashboard',
-        theme: ThemeData.dark().copyWith(
-          scaffoldBackgroundColor: const Color(0xFF121212),
-          primaryColor: const Color(0xFF1E1E1E),
-          colorScheme: const ColorScheme.dark(
-            primary: Colors.orange,
-            secondary: Colors.teal,
-          ),
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF1E1E1E),
-            elevation: 0,
-          ),
-        ),
+        title: 'Dashboard PoultryVision',
+        theme: AppTheme.theme, // Use Industrial-Nature theme
         home: const DashboardScreen(),
         debugShowCheckedModeBanner: false,
       ),
