@@ -25,6 +25,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   // Metric options in Bahasa Indonesia
   final List<Map<String, dynamic>> _metricOptions = [
     {'label': 'Suhu', 'icon': Icons.thermostat_rounded},
+    {'label': 'Kelembapan', 'icon': Icons.opacity},
     {'label': 'Amonia', 'icon': Icons.cloud_outlined},
     {'label': 'Pakan', 'icon': Icons.grain_rounded},
     {'label': 'Air', 'icon': Icons.water_drop_rounded},
@@ -68,6 +69,50 @@ class _HistoryScreenState extends State<HistoryScreen> {
           FlSpot(20, 28),
           FlSpot(25, 27),
           FlSpot(30, 28),
+        ];
+      default:
+        return const [];
+    }
+  }
+
+  // --- Dummy Data for Humidity Chart (FlSpot) ---
+  List<FlSpot> get _humidityData {
+    switch (_selectedFilterIndex) {
+      case 0: // 24 Hours - hourly data
+        return const [
+          FlSpot(0, 65),
+          FlSpot(2, 68),
+          FlSpot(4, 72),
+          FlSpot(6, 75),
+          FlSpot(8, 70),
+          FlSpot(10, 62),
+          FlSpot(12, 55),
+          FlSpot(14, 52),
+          FlSpot(16, 58),
+          FlSpot(18, 63),
+          FlSpot(20, 68),
+          FlSpot(22, 70),
+          FlSpot(24, 67),
+        ];
+      case 1: // 7 Days - daily averages
+        return const [
+          FlSpot(0, 62),
+          FlSpot(1, 65),
+          FlSpot(2, 68),
+          FlSpot(3, 70),
+          FlSpot(4, 66),
+          FlSpot(5, 63),
+          FlSpot(6, 65),
+        ];
+      case 2: // 30 Days - daily averages
+        return const [
+          FlSpot(0, 60),
+          FlSpot(5, 65),
+          FlSpot(10, 70),
+          FlSpot(15, 68),
+          FlSpot(20, 62),
+          FlSpot(25, 58),
+          FlSpot(30, 64),
         ];
       default:
         return const [];
@@ -252,6 +297,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return data.map((e) => e.y).reduce((a, b) => a + b) / data.length;
   }
 
+  double get _averageHumidity {
+    final data = _humidityData;
+    if (data.isEmpty) return 0;
+    return data.map((e) => e.y).reduce((a, b) => a + b) / data.length;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -429,10 +480,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
       case 0:
         return _buildTemperatureChart();
       case 1:
-        return _buildAmmoniaChart();
+        return _buildHumidityChart();
       case 2:
-        return _buildFeedChart();
+        return _buildAmmoniaChart();
       case 3:
+        return _buildFeedChart();
+      case 4:
         return _buildWaterChart();
       default:
         return _buildTemperatureChart();
@@ -612,6 +665,214 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       return touchedSpots.map((spot) {
                         return LineTooltipItem(
                           '${spot.y.toStringAsFixed(1)}°C',
+                          const TextStyle(
+                            color: DarkTheme.neonGreen,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        );
+                      }).toList();
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHumidityChart() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: DarkTheme.cardDecoration,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Chart Title
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: DarkTheme.neonGreen.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.opacity,
+                  color: DarkTheme.neonGreen,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text('Grafik Kelembapan', style: DarkTheme.controlTitle),
+                  Text('Kelembapan (%)', style: DarkTheme.controlSubtitle),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Line Chart
+          SizedBox(
+            height: 200,
+            child: LineChart(
+              LineChartData(
+                minY: 0,
+                maxY: 100,
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: 20,
+                  getDrawingHorizontalLine: (value) {
+                    return FlLine(
+                      color: DarkTheme.neonGreen.withValues(alpha: 0.1),
+                      strokeWidth: 1,
+                    );
+                  },
+                ),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 40,
+                      interval: 20,
+                      getTitlesWidget: (value, meta) {
+                        return Text(
+                          '${value.toInt()}%',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: DarkTheme.paleGreen,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      interval: _selectedFilterIndex == 0 ? 6 : 1,
+                      getTitlesWidget: (value, meta) {
+                        String label = '';
+                        if (_selectedFilterIndex == 0) {
+                          label = '${value.toInt()}h';
+                        } else if (_selectedFilterIndex == 1) {
+                          final days = [
+                            'Sen',
+                            'Sel',
+                            'Rab',
+                            'Kam',
+                            'Jum',
+                            'Sab',
+                            'Min',
+                          ];
+                          if (value.toInt() < days.length) {
+                            label = days[value.toInt()];
+                          }
+                        } else {
+                          label = 'M${(value / 7).ceil()}';
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            label,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: DarkTheme.paleGreen,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: _humidityData,
+                    isCurved: true,
+                    curveSmoothness: 0.35,
+                    color: DarkTheme.neonGreen,
+                    barWidth: 3,
+                    isStrokeCapRound: true,
+                    dotData: const FlDotData(show: false),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          DarkTheme.neonGreen.withValues(alpha: 0.3),
+                          DarkTheme.neonGreen.withValues(alpha: 0.0),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                // Ideal zone reference lines at 50% and 70%
+                extraLinesData: ExtraLinesData(
+                  horizontalLines: [
+                    HorizontalLine(
+                      y: 50,
+                      color: DarkTheme.statusSafe,
+                      strokeWidth: 2,
+                      dashArray: [8, 4],
+                      label: HorizontalLineLabel(
+                        show: true,
+                        alignment: Alignment.topLeft,
+                        padding: const EdgeInsets.only(left: 5, bottom: 5),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: DarkTheme.statusSafe,
+                        ),
+                        labelResolver: (_) => 'Min Ideal 50%',
+                      ),
+                    ),
+                    HorizontalLine(
+                      y: 70,
+                      color: DarkTheme.statusSafe,
+                      strokeWidth: 2,
+                      dashArray: [8, 4],
+                      label: HorizontalLineLabel(
+                        show: true,
+                        alignment: Alignment.topRight,
+                        padding: const EdgeInsets.only(right: 5, bottom: 5),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: DarkTheme.statusSafe,
+                        ),
+                        labelResolver: (_) => 'Max Ideal 70%',
+                      ),
+                    ),
+                  ],
+                ),
+                lineTouchData: LineTouchData(
+                  touchTooltipData: LineTouchTooltipData(
+                    tooltipBgColor: DarkTheme.deepForestBlack.withValues(
+                      alpha: 0.9,
+                    ),
+                    tooltipRoundedRadius: 10,
+                    tooltipPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    getTooltipItems: (touchedSpots) {
+                      return touchedSpots.map((spot) {
+                        return LineTooltipItem(
+                          '${spot.y.toStringAsFixed(1)}%',
                           const TextStyle(
                             color: DarkTheme.neonGreen,
                             fontWeight: FontWeight.w700,
@@ -1281,6 +1542,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 iconColor: Colors.lightBlueAccent,
               ),
             ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // Third Row: Humidity
+        Row(
+          children: [
+            const Spacer(),
+            Expanded(
+              flex: 2,
+              child: _buildSummaryCard(
+                icon: Icons.opacity,
+                label: 'Rata-rata Kelembapan',
+                value: '${_averageHumidity.toStringAsFixed(1)}%',
+                iconColor: DarkTheme.neonGreen,
+              ),
+            ),
+            const Spacer(),
           ],
         ),
       ],

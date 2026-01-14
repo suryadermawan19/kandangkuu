@@ -274,7 +274,7 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
       opacity: staleDim,
       child: Column(
         children: [
-          // Row 1: Temperature & Ammonia
+          // Row 1 (Iklim): Temperature & Humidity
           Row(
             children: [
               // Temperature Card
@@ -293,6 +293,25 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                 ),
               ),
               const SizedBox(width: 12),
+              // Humidity Card (NEW)
+              Expanded(
+                child: _buildMetricCard(
+                  icon: Icons.opacity,
+                  label: 'Kelembapan',
+                  value: '${sensorData.humidity.toStringAsFixed(0)}%',
+                  statusText: DarkTheme.getHumidityStatusText(
+                    sensorData.humidity,
+                  ),
+                  statusColor: DarkTheme.getHumidityStatus(sensorData.humidity),
+                  isStale: sensorData.isStale,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Row 2 (Udara & Air): Ammonia & Water Level
+          Row(
+            children: [
               // Ammonia Card
               Expanded(
                 child: _buildMetricCard(
@@ -303,27 +322,6 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                     sensorData.ammonia,
                   ),
                   statusColor: DarkTheme.getAmmoniaStatus(sensorData.ammonia),
-                  isStale: sensorData.isStale,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Row 2: Feed Weight & Water Level
-          Row(
-            children: [
-              // Feed Weight Card
-              Expanded(
-                child: _buildMetricCard(
-                  icon: Icons.grain_rounded,
-                  label: 'Sisa Pakan',
-                  value: '${sensorData.feedWeight.toStringAsFixed(1)} g',
-                  statusText: DarkTheme.getFeedWeightStatusText(
-                    sensorData.feedWeight,
-                  ),
-                  statusColor: DarkTheme.getFeedWeightStatus(
-                    sensorData.feedWeight,
-                  ),
                   isStale: sensorData.isStale,
                 ),
               ),
@@ -345,6 +343,30 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                   isStale: sensorData.isStale,
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Row 3 (Pakan): Feed Weight - Centered
+          Row(
+            children: [
+              const Spacer(),
+              // Feed Weight Card
+              Expanded(
+                flex: 2,
+                child: _buildMetricCard(
+                  icon: Icons.grain_rounded,
+                  label: 'Sisa Pakan',
+                  value: '${sensorData.feedWeight.toStringAsFixed(1)} g',
+                  statusText: DarkTheme.getFeedWeightStatusText(
+                    sensorData.feedWeight,
+                  ),
+                  statusColor: DarkTheme.getFeedWeightStatus(
+                    sensorData.feedWeight,
+                  ),
+                  isStale: sensorData.isStale,
+                ),
+              ),
+              const Spacer(),
             ],
           ),
         ],

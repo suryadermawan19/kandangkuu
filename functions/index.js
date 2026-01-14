@@ -154,27 +154,31 @@ exports.dailyStats = onSchedule({
 
     let totalTemp = 0;
     let totalAmmonia = 0;
+    let totalHumidity = 0;
     let count = 0;
 
     snapshot.forEach(doc => {
       const data = doc.data();
       totalTemp += (data.temperature || 0);
       totalAmmonia += (data.ammonia || 0);
+      totalHumidity += (data.humidity || 0);
       count++;
     });
 
     const avgTemp = totalTemp / count;
     const avgAmmonia = totalAmmonia / count;
+    const avgHumidity = totalHumidity / count;
 
     await admin.firestore().collection('daily_stats').add({
       date: startOfYesterday,
       avg_temperature: avgTemp,
       avg_ammonia: avgAmmonia,
+      avg_humidity: avgHumidity,
       reading_count: count,
       created_at: now
     });
 
-    console.log(`Daily stats verified: Temp ${avgTemp}, Ammonia ${avgAmmonia}`);
+    console.log(`Daily stats verified: Temp ${avgTemp}, Ammonia ${avgAmmonia}, Humidity ${avgHumidity}`);
     return null;
   } catch (error) {
     console.error('Error in dailyStats:', error);

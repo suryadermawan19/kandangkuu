@@ -192,6 +192,23 @@ class DarkTheme {
     return 'Aman';
   }
 
+  // Humidity Helpers (Kelembapan)
+  // Safe (Aman): 50% - 70% (Green)
+  // Warning (Awas): 40-50% or 70-80% (Yellow/Orange)
+  // Critical (Bahaya): < 40% (Too Dry) or > 80% (Too Wet) (Red)
+  static Color getHumidityStatus(double humidity) {
+    if (humidity < 40 || humidity > 80) return statusDanger;
+    if (humidity < 50 || humidity > 70) return statusWarning;
+    return statusSafe;
+  }
+
+  static String getHumidityStatusText(double humidity) {
+    if (humidity < 40) return 'Kering';
+    if (humidity > 80) return 'Basah';
+    if (humidity < 50 || humidity > 70) return 'Awas';
+    return 'Aman';
+  }
+
   static String getVisionStatusText(int score) {
     if (score >= 80) return 'Nyaman';
     if (score >= 60) return 'Normal';
