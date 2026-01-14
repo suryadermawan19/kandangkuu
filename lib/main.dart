@@ -34,6 +34,8 @@ class PoultryVisionApp extends StatelessWidget {
             waterLevel: 'Unknown',
             visionScore: 0,
             imagePath: '',
+            lastUpdate:
+                null, // Will show "loading" state until first data arrives
           ),
         ),
       ],

@@ -198,4 +198,57 @@ class DarkTheme {
     if (score >= 40) return 'Perlu Perhatian';
     return 'Kritis';
   }
+
+  // Feed Weight Helpers
+  static Color getFeedWeightStatus(double kg) {
+    if (kg < 1.0) return statusDanger;
+    if (kg < 2.0) return statusWarning;
+    return statusSafe;
+  }
+
+  static String getFeedWeightStatusText(double kg) {
+    if (kg < 1.0) return 'Habis!';
+    if (kg < 2.0) return 'Rendah';
+    return 'Cukup';
+  }
+
+  // Water Level Helpers
+  static Color getWaterLevelStatus(String level) {
+    final lower = level.toLowerCase();
+    if (lower == 'empty' || lower == 'habis' || lower == 'kosong') {
+      return statusDanger;
+    }
+    if (lower == 'low' || lower == 'rendah') {
+      return statusWarning;
+    }
+    return statusSafe;
+  }
+
+  static String getWaterLevelStatusText(String level) {
+    final lower = level.toLowerCase();
+    if (lower == 'empty' || lower == 'habis' || lower == 'kosong') {
+      return 'Habis!';
+    }
+    if (lower == 'low' || lower == 'rendah') {
+      return 'Rendah';
+    }
+    if (lower == 'full' || lower == 'penuh') {
+      return 'Penuh';
+    }
+    return 'Normal';
+  }
+
+  static String getWaterLevelDisplayText(String level) {
+    final lower = level.toLowerCase();
+    if (lower == 'empty' || lower == 'habis' || lower == 'kosong') {
+      return 'Kosong';
+    }
+    if (lower == 'low' || lower == 'rendah') {
+      return 'Rendah';
+    }
+    if (lower == 'full' || lower == 'penuh') {
+      return 'Penuh';
+    }
+    return 'Normal';
+  }
 }

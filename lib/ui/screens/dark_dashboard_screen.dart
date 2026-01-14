@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 import 'package:kandangku/models/sensor_model.dart';
 import 'package:kandangku/services/firebase_service.dart';
 import 'package:kandangku/ui/theme/dark_theme.dart';
+import 'package:kandangku/ui/screens/history_screen.dart';
+import 'package:kandangku/ui/screens/alerts_screen.dart';
+import 'package:kandangku/ui/screens/settings_screen.dart';
 
 class DarkDashboardScreen extends StatefulWidget {
   const DarkDashboardScreen({super.key});
@@ -16,6 +19,11 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
   int _currentNavIndex = 0;
   late AnimationController _pulseController;
   late AnimationController _livePulseController;
+
+  // UX Fix #2: Loading states for actuators
+  bool _isFanLoading = false;
+  bool _isHeaterLoading = false;
+  bool _isAutoModeLoading = false;
 
   @override
   void initState() {
@@ -48,32 +56,129 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
 
     return Scaffold(
       backgroundColor: DarkTheme.backgroundPrimary,
-      appBar: _buildHeader(),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Metric Grid
-            _buildMetricGrid(sensorData),
-            const SizedBox(height: 20),
+      appBar: _buildHeader(sensorData),
+      body: Column(
+        children: [
+          // UX Fix #1: Offline Banner
+          if (sensorData.isStale) _buildOfflineBanner(sensorData),
 
-            // Vision Card (Camera Feed)
-            _buildVisionCard(sensorData),
-            const SizedBox(height: 24),
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Metric Grid
+                  _buildMetricGrid(sensorData),
+                  const SizedBox(height: 20),
 
-            // Control Section
-            _buildControlSection(sensorData, firebaseService),
-            const SizedBox(height: 100), // Space for bottom nav
-          ],
-        ),
+                  // Vision Card (Camera Feed)
+                  _buildVisionCard(sensorData),
+                  const SizedBox(height: 24),
+
+                  // Control Section
+                  _buildControlSection(sensorData, firebaseService),
+                  const SizedBox(height: 100), // Space for bottom nav
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: _buildBottomNav(),
     );
   }
 
-  PreferredSizeWidget _buildHeader() {
+  // ============ UX FIX #1: OFFLINE BANNER ============
+  Widget _buildOfflineBanner(SensorModel sensorData) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: DarkTheme.statusDanger.withValues(alpha: 0.15),
+        border: Border(
+          bottom: BorderSide(
+            color: DarkTheme.statusDanger.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Pulsing warning icon
+          AnimatedBuilder(
+            animation: _pulseController,
+            builder: (context, child) {
+              return Icon(
+                Icons.wifi_off_rounded,
+                color: DarkTheme.statusDanger.withValues(
+                  alpha: 0.6 + (_pulseController.value * 0.4),
+                ),
+                size: 22,
+              );
+            },
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Koneksi Terputus',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: DarkTheme.statusDanger,
+                  ),
+                ),
+                Text(
+                  'Data terakhir: ${sensorData.timeSinceUpdate}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: DarkTheme.statusDanger.withValues(alpha: 0.8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Retry button
+          TextButton.icon(
+            onPressed: () {
+              // Could trigger a manual refresh here
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text('Mencoba menghubungkan ulang...'),
+                  backgroundColor: DarkTheme.cardBackground,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Coba Lagi'),
+            style: TextButton.styleFrom(
+              foregroundColor: DarkTheme.statusDanger,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildHeader(SensorModel sensorData) {
+    // Determine connection status color
+    final bool isOnline = sensorData.isOnline;
+    final Color statusColor = isOnline
+        ? DarkTheme.neonGreen
+        : DarkTheme.statusDanger;
+    final String statusText = isOnline
+        ? 'Terpantau ${sensorData.timeSinceUpdate}'
+        : 'Terputus ${sensorData.timeSinceUpdate}';
+
     return AppBar(
       backgroundColor: DarkTheme.backgroundPrimary,
       elevation: 0,
@@ -88,7 +193,7 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Pulsing green dot
+              // Dynamic status dot
               AnimatedBuilder(
                 animation: _pulseController,
                 builder: (context, child) {
@@ -97,12 +202,12 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                     height: 8,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: DarkTheme.neonGreen.withValues(
+                      color: statusColor.withValues(
                         alpha: 0.5 + (_pulseController.value * 0.5),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: DarkTheme.neonGreen.withValues(
+                          color: statusColor.withValues(
                             alpha: 0.3 + (_pulseController.value * 0.3),
                           ),
                           blurRadius: 6,
@@ -114,7 +219,14 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                 },
               ),
               const SizedBox(width: 6),
-              const Text('Terpantau 2m lalu', style: DarkTheme.headerSubtitle),
+              Text(
+                statusText,
+                style: DarkTheme.headerSubtitle.copyWith(
+                  color: isOnline
+                      ? DarkTheme.paleGreen
+                      : DarkTheme.statusDanger,
+                ),
+              ),
             ],
           ),
         ],
@@ -128,7 +240,12 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                 Icons.notifications_outlined,
                 color: DarkTheme.textPrimary,
               ),
-              onPressed: () {},
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const AlertsScreen()),
+                );
+              },
             ),
             Positioned(
               right: 10,
@@ -149,32 +266,89 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
   }
 
   Widget _buildMetricGrid(SensorModel sensorData) {
-    return Row(
-      children: [
-        // Temperature Card
-        Expanded(
-          child: _buildMetricCard(
-            icon: Icons.thermostat_rounded,
-            label: 'Suhu Kandang',
-            value: '${sensorData.temperature.toStringAsFixed(0)}°C',
-            statusText: DarkTheme.getTemperatureStatusText(
-              sensorData.temperature,
-            ),
-            statusColor: DarkTheme.getTemperatureStatus(sensorData.temperature),
+    // Apply visual dimming when data is stale
+    final double staleDim = sensorData.isStale ? 0.6 : 1.0;
+
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 300),
+      opacity: staleDim,
+      child: Column(
+        children: [
+          // Row 1: Temperature & Ammonia
+          Row(
+            children: [
+              // Temperature Card
+              Expanded(
+                child: _buildMetricCard(
+                  icon: Icons.thermostat_rounded,
+                  label: 'Suhu',
+                  value: '${sensorData.temperature.toStringAsFixed(0)}°C',
+                  statusText: DarkTheme.getTemperatureStatusText(
+                    sensorData.temperature,
+                  ),
+                  statusColor: DarkTheme.getTemperatureStatus(
+                    sensorData.temperature,
+                  ),
+                  isStale: sensorData.isStale,
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Ammonia Card
+              Expanded(
+                child: _buildMetricCard(
+                  icon: Icons.cloud_outlined,
+                  label: 'Amonia',
+                  value: '${sensorData.ammonia.toStringAsFixed(0)} ppm',
+                  statusText: DarkTheme.getAmmoniaStatusText(
+                    sensorData.ammonia,
+                  ),
+                  statusColor: DarkTheme.getAmmoniaStatus(sensorData.ammonia),
+                  isStale: sensorData.isStale,
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(width: 12),
-        // Ammonia Card
-        Expanded(
-          child: _buildMetricCard(
-            icon: Icons.cloud_outlined,
-            label: 'Kadar Amonia',
-            value: '${sensorData.ammonia.toStringAsFixed(0)} ppm',
-            statusText: DarkTheme.getAmmoniaStatusText(sensorData.ammonia),
-            statusColor: DarkTheme.getAmmoniaStatus(sensorData.ammonia),
+          const SizedBox(height: 12),
+          // Row 2: Feed Weight & Water Level
+          Row(
+            children: [
+              // Feed Weight Card
+              Expanded(
+                child: _buildMetricCard(
+                  icon: Icons.grain_rounded,
+                  label: 'Sisa Pakan',
+                  value: '${sensorData.feedWeight.toStringAsFixed(1)} g',
+                  statusText: DarkTheme.getFeedWeightStatusText(
+                    sensorData.feedWeight,
+                  ),
+                  statusColor: DarkTheme.getFeedWeightStatus(
+                    sensorData.feedWeight,
+                  ),
+                  isStale: sensorData.isStale,
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Water Level Card
+              Expanded(
+                child: _buildMetricCard(
+                  icon: Icons.water_drop_rounded,
+                  label: 'Level Air',
+                  value: DarkTheme.getWaterLevelDisplayText(
+                    sensorData.waterLevel,
+                  ),
+                  statusText: DarkTheme.getWaterLevelStatusText(
+                    sensorData.waterLevel,
+                  ),
+                  statusColor: DarkTheme.getWaterLevelStatus(
+                    sensorData.waterLevel,
+                  ),
+                  isStale: sensorData.isStale,
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -184,10 +358,26 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
     required String value,
     required String statusText,
     required Color statusColor,
+    bool isStale = false,
   }) {
+    // Gray out status badge when stale
+    final Color displayStatusColor = isStale
+        ? DarkTheme.textDisabled
+        : statusColor;
+    final String displayStatusText = isStale ? 'Offline' : statusText;
+
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: DarkTheme.cardDecoration,
+      decoration: isStale
+          ? BoxDecoration(
+              color: DarkTheme.cardBackground.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: DarkTheme.textDisabled.withValues(alpha: 0.3),
+                width: 1,
+              ),
+            )
+          : DarkTheme.cardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -199,10 +389,16 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: DarkTheme.neonGreen.withValues(alpha: 0.15),
+                  color: isStale
+                      ? DarkTheme.textDisabled.withValues(alpha: 0.15)
+                      : DarkTheme.neonGreen.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: DarkTheme.neonGreen, size: 24),
+                child: Icon(
+                  icon,
+                  color: isStale ? DarkTheme.textDisabled : DarkTheme.neonGreen,
+                  size: 24,
+                ),
               ),
               // Status Badge
               Container(
@@ -211,19 +407,29 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: statusColor,
+                  color: displayStatusColor,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(statusText, style: DarkTheme.badgeText),
+                child: Text(displayStatusText, style: DarkTheme.badgeText),
               ),
             ],
           ),
           const SizedBox(height: 16),
           // Label
-          Text(label, style: DarkTheme.sensorLabel),
+          Text(
+            label,
+            style: DarkTheme.sensorLabel.copyWith(
+              color: isStale ? DarkTheme.textDisabled : DarkTheme.paleGreen,
+            ),
+          ),
           const SizedBox(height: 6),
           // Value
-          Text(value, style: DarkTheme.sensorValue),
+          Text(
+            isStale ? '--' : value,
+            style: DarkTheme.sensorValue.copyWith(
+              color: isStale ? DarkTheme.textDisabled : DarkTheme.textPrimary,
+            ),
+          ),
         ],
       ),
     );
@@ -242,68 +448,106 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Placeholder/Stream Image
+                // Placeholder/Stream Image with error handling
                 sensorData.imagePath.isNotEmpty
                     ? Image.network(
                         sensorData.imagePath,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _buildPlaceholderImage(),
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return _buildCameraLoadingState();
+                        },
+                        errorBuilder: (_, __, ___) => _buildCameraErrorState(),
                       )
                     : _buildPlaceholderImage(),
 
-                // LIVE Badge (Top Left)
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  child: AnimatedBuilder(
-                    animation: _livePulseController,
-                    builder: (context, child) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: DarkTheme.statusDanger.withValues(
-                            alpha: 0.85 + (_livePulseController.value * 0.15),
+                // LIVE Badge (Top Left) - only show when online
+                if (sensorData.isOnline)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: AnimatedBuilder(
+                      animation: _livePulseController,
+                      builder: (context, child) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
                           ),
-                          borderRadius: BorderRadius.circular(6),
-                          boxShadow: [
-                            BoxShadow(
-                              color: DarkTheme.statusDanger.withValues(
-                                alpha: 0.4,
-                              ),
-                              blurRadius: 8,
+                          decoration: BoxDecoration(
+                            color: DarkTheme.statusDanger.withValues(
+                              alpha: 0.85 + (_livePulseController.value * 0.15),
                             ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
+                            borderRadius: BorderRadius.circular(6),
+                            boxShadow: [
+                              BoxShadow(
+                                color: DarkTheme.statusDanger.withValues(
+                                  alpha: 0.4,
+                                ),
+                                blurRadius: 8,
                               ),
-                            ),
-                            const SizedBox(width: 6),
-                            const Text(
-                              'LIVE',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                letterSpacing: 0.5,
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+                              const SizedBox(width: 6),
+                              const Text(
+                                'LIVE',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                ),
+
+                // Offline badge when stale
+                if (sensorData.isStale)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: DarkTheme.textDisabled,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.wifi_off, size: 12, color: Colors.white),
+                          SizedBox(width: 6),
+                          Text(
+                            'OFFLINE',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
 
                 // Vision Score (Bottom Right - Glassmorphic)
                 Positioned(
@@ -322,7 +566,9 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                       ),
                     ),
                     child: Text(
-                      'Skor Visi: ${sensorData.visionScore} (${DarkTheme.getVisionStatusText(sensorData.visionScore)})',
+                      sensorData.isStale
+                          ? 'Skor Visi: --'
+                          : 'Skor Visi: ${sensorData.visionScore} (${DarkTheme.getVisionStatusText(sensorData.visionScore)})',
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -355,22 +601,32 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                             width: 8,
                             height: 8,
                             decoration: BoxDecoration(
-                              color: DarkTheme.neonGreen,
+                              color: sensorData.isOnline
+                                  ? DarkTheme.neonGreen
+                                  : DarkTheme.textDisabled,
                               shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: DarkTheme.neonGreen.withValues(
-                                    alpha: 0.5,
-                                  ),
-                                  blurRadius: 4,
-                                ),
-                              ],
+                              boxShadow: sensorData.isOnline
+                                  ? [
+                                      BoxShadow(
+                                        color: DarkTheme.neonGreen.withValues(
+                                          alpha: 0.5,
+                                        ),
+                                        blurRadius: 4,
+                                      ),
+                                    ]
+                                  : [],
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Text(
-                            'Deteksi AI Aktif',
-                            style: DarkTheme.controlSubtitle,
+                          Text(
+                            sensorData.isOnline
+                                ? 'Deteksi AI Aktif'
+                                : 'Deteksi AI Nonaktif',
+                            style: DarkTheme.controlSubtitle.copyWith(
+                              color: sensorData.isOnline
+                                  ? DarkTheme.paleGreen
+                                  : DarkTheme.textDisabled,
+                            ),
                           ),
                         ],
                       ),
@@ -386,6 +642,81 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // UX Fix #3: Camera loading state
+  Widget _buildCameraLoadingState() {
+    return Container(
+      color: DarkTheme.cardBackground,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  DarkTheme.neonGreen.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Memuat kamera...',
+              style: DarkTheme.controlSubtitle.copyWith(
+                color: DarkTheme.paleGreen.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // UX Fix #3: Camera error state
+  Widget _buildCameraErrorState() {
+    return Container(
+      color: DarkTheme.cardBackground,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.videocam_off_rounded,
+              size: 48,
+              color: DarkTheme.statusDanger.withValues(alpha: 0.7),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Kamera tidak tersedia',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: DarkTheme.statusDanger,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Periksa koneksi perangkat',
+              style: DarkTheme.controlSubtitle.copyWith(
+                color: DarkTheme.paleGreen.withValues(alpha: 0.7),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () {
+                setState(() {}); // Trigger rebuild to retry
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Coba Lagi'),
+              style: TextButton.styleFrom(foregroundColor: DarkTheme.neonGreen),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -467,22 +798,33 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                   ],
                 ),
               ),
-              // Switch
-              Transform.scale(
-                scale: 1.1,
-                child: Switch(
-                  value: sensorData.isAutoMode,
-                  onChanged: (val) {
-                    service.updateActuatorState(isAutoMode: val);
-                  },
-                  activeColor: DarkTheme.neonGreen,
-                  activeTrackColor: DarkTheme.neonGreen.withValues(alpha: 0.4),
-                  inactiveThumbColor: DarkTheme.textDisabled,
-                  inactiveTrackColor: DarkTheme.textDisabled.withValues(
-                    alpha: 0.3,
-                  ),
-                ),
-              ),
+              // Switch with loading state
+              _isAutoModeLoading
+                  ? SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          DarkTheme.neonGreen,
+                        ),
+                      ),
+                    )
+                  : Transform.scale(
+                      scale: 1.1,
+                      child: Switch(
+                        value: sensorData.isAutoMode,
+                        onChanged: (val) => _handleAutoModeToggle(val, service),
+                        activeColor: DarkTheme.neonGreen,
+                        activeTrackColor: DarkTheme.neonGreen.withValues(
+                          alpha: 0.4,
+                        ),
+                        inactiveThumbColor: DarkTheme.textDisabled,
+                        inactiveTrackColor: DarkTheme.textDisabled.withValues(
+                          alpha: 0.3,
+                        ),
+                      ),
+                    ),
             ],
           ),
         ),
@@ -500,11 +842,8 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                 label: 'Kipas',
                 isActive: sensorData.isFanOn,
                 isDisabled: sensorData.isAutoMode,
-                onTap: () {
-                  if (!sensorData.isAutoMode) {
-                    service.updateActuatorState(isFanOn: !sensorData.isFanOn);
-                  }
-                },
+                isLoading: _isFanLoading,
+                onTap: () => _handleFanToggle(sensorData, service),
               ),
             ),
             const SizedBox(width: 12),
@@ -516,18 +855,113 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                 label: 'Pemanas',
                 isActive: sensorData.isHeaterOn,
                 isDisabled: sensorData.isAutoMode,
-                onTap: () {
-                  if (!sensorData.isAutoMode) {
-                    service.updateActuatorState(
-                      isHeaterOn: !sensorData.isHeaterOn,
-                    );
-                  }
-                },
+                isLoading: _isHeaterLoading,
+                onTap: () => _handleHeaterToggle(sensorData, service),
               ),
             ),
           ],
         ),
       ],
+    );
+  }
+
+  // UX Fix #2: Actuator handlers with loading states
+  Future<void> _handleAutoModeToggle(
+    bool value,
+    FirebaseService service,
+  ) async {
+    setState(() => _isAutoModeLoading = true);
+    try {
+      await service.updateActuatorState(isAutoMode: value);
+      _showSuccessSnackbar(
+        value ? 'Mode Otomatis diaktifkan' : 'Mode Manual diaktifkan',
+      );
+    } catch (e) {
+      _showErrorSnackbar('Gagal mengubah mode. Coba lagi.');
+    } finally {
+      setState(() => _isAutoModeLoading = false);
+    }
+  }
+
+  Future<void> _handleFanToggle(
+    SensorModel sensorData,
+    FirebaseService service,
+  ) async {
+    if (sensorData.isAutoMode) return;
+
+    setState(() => _isFanLoading = true);
+    try {
+      await service.updateActuatorState(isFanOn: !sensorData.isFanOn);
+      _showSuccessSnackbar(
+        sensorData.isFanOn ? 'Kipas dimatikan' : 'Kipas dinyalakan',
+      );
+    } catch (e) {
+      _showErrorSnackbar('Gagal mengontrol kipas. Coba lagi.');
+    } finally {
+      setState(() => _isFanLoading = false);
+    }
+  }
+
+  Future<void> _handleHeaterToggle(
+    SensorModel sensorData,
+    FirebaseService service,
+  ) async {
+    if (sensorData.isAutoMode) return;
+
+    setState(() => _isHeaterLoading = true);
+    try {
+      await service.updateActuatorState(isHeaterOn: !sensorData.isHeaterOn);
+      _showSuccessSnackbar(
+        sensorData.isHeaterOn ? 'Pemanas dimatikan' : 'Pemanas dinyalakan',
+      );
+    } catch (e) {
+      _showErrorSnackbar('Gagal mengontrol pemanas. Coba lagi.');
+    } finally {
+      setState(() => _isHeaterLoading = false);
+    }
+  }
+
+  void _showSuccessSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(
+              Icons.check_circle_rounded,
+              color: DarkTheme.neonGreen,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Text(message),
+          ],
+        ),
+        backgroundColor: DarkTheme.cardBackground,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showErrorSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(
+              Icons.error_rounded,
+              color: DarkTheme.statusDanger,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Text(message),
+          ],
+        ),
+        backgroundColor: DarkTheme.cardBackground,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 3),
+      ),
     );
   }
 
@@ -537,12 +971,13 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
     required String label,
     required bool isActive,
     required bool isDisabled,
+    required bool isLoading,
     required VoidCallback onTap,
   }) {
     final double opacity = isDisabled ? 0.5 : 1.0;
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: isLoading ? null : onTap,
       child: AnimatedOpacity(
         duration: const Duration(milliseconds: 200),
         opacity: opacity,
@@ -564,13 +999,26 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
             children: [
               Column(
                 children: [
-                  Icon(
-                    isActive ? activeIcon : icon,
-                    color: isActive && !isDisabled
-                        ? DarkTheme.neonGreen
-                        : DarkTheme.paleGreen,
-                    size: 36,
-                  ),
+                  // Show spinner when loading, otherwise show icon
+                  if (isLoading)
+                    SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          DarkTheme.neonGreen,
+                        ),
+                      ),
+                    )
+                  else
+                    Icon(
+                      isActive ? activeIcon : icon,
+                      color: isActive && !isDisabled
+                          ? DarkTheme.neonGreen
+                          : DarkTheme.paleGreen,
+                      size: 36,
+                    ),
                   const SizedBox(height: 12),
                   Text(
                     label,
@@ -582,11 +1030,15 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    isActive ? 'Menyala' : 'Mati',
+                    isLoading
+                        ? 'Memproses...'
+                        : (isActive ? 'Menyala' : 'Mati'),
                     style: DarkTheme.controlSubtitle.copyWith(
-                      color: isActive && !isDisabled
-                          ? DarkTheme.neonGreen
-                          : DarkTheme.textDisabled,
+                      color: isLoading
+                          ? DarkTheme.statusWarning
+                          : (isActive && !isDisabled
+                                ? DarkTheme.neonGreen
+                                : DarkTheme.textDisabled),
                     ),
                   ),
                 ],
@@ -618,7 +1070,26 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
       child: SafeArea(
         child: BottomNavigationBar(
           currentIndex: _currentNavIndex,
-          onTap: (index) => setState(() => _currentNavIndex = index),
+          onTap: (index) {
+            if (index == 1) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AlertsScreen()),
+              );
+            } else if (index == 2) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryScreen()),
+              );
+            } else if (index == 3) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            } else {
+              setState(() => _currentNavIndex = index);
+            }
+          },
           backgroundColor: Colors.transparent,
           elevation: 0,
           type: BottomNavigationBarType.fixed,
