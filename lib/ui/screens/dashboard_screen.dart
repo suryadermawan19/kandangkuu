@@ -52,7 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Icon(Icons.agriculture, color: AppTheme.statusGreen, size: 28),
             const SizedBox(width: 12),
             Text(
-              'PoultryVision',
+              'Kandangku',
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 22,

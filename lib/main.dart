@@ -2,8 +2,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:kandangku/models/sensor_model.dart';
 import 'package:kandangku/services/firebase_service.dart';
-import 'package:kandangku/ui/screens/dashboard_screen.dart';
-import 'package:kandangku/ui/theme/app_theme.dart';
+import 'package:kandangku/ui/screens/dark_dashboard_screen.dart';
+import 'package:kandangku/ui/theme/dark_theme.dart';
 import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 
@@ -38,9 +38,9 @@ class PoultryVisionApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'Dashboard PoultryVision',
-        theme: AppTheme.theme, // Use Industrial-Nature theme
-        home: const DashboardScreen(),
+        title: 'Kandangku - IoT Dashboard',
+        theme: DarkTheme.theme, // Industrial Green Dark Theme
+        home: const DarkDashboardScreen(),
         debugShowCheckedModeBanner: false,
       ),
     );
