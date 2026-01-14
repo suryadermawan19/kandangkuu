@@ -140,7 +140,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   icon: Icons.scale,
                   label: 'Berat Pakan',
                   value: sensorData.feedWeight.toStringAsFixed(1),
-                  unit: 'kg',
+                  unit: 'g',
                   statusColor: AppTheme.getFeedWeightStatusColor(
                     sensorData.feedWeight,
                   ),

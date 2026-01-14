@@ -191,7 +191,7 @@ exports.updateTelemetry = onRequest({ cors: true }, async (request, response) =>
     return;
   }
 
-  const { temperature, humidity, ammonia } = request.body;
+  const { temperature, humidity, ammonia, feed_weight, water_level } = request.body;
 
   // Basic validation
   if (temperature === undefined || humidity === undefined || ammonia === undefined) {
@@ -209,6 +209,8 @@ exports.updateTelemetry = onRequest({ cors: true }, async (request, response) =>
       temperature: Number(temperature),
       humidity: Number(humidity),
       ammonia: Number(ammonia),
+      feed_weight: feed_weight !== undefined ? Number(feed_weight) : 0,
+      water_level: water_level !== undefined ? String(water_level) : 'Unknown',
       last_update: timestamp
     }, { merge: true });
 
@@ -218,6 +220,8 @@ exports.updateTelemetry = onRequest({ cors: true }, async (request, response) =>
       temperature: Number(temperature),
       humidity: Number(humidity),
       ammonia: Number(ammonia),
+      feed_weight: feed_weight !== undefined ? Number(feed_weight) : 0,
+      water_level: water_level !== undefined ? String(water_level) : 'Unknown',
       last_update: timestamp
     });
 
