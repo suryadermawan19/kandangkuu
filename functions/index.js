@@ -203,11 +203,26 @@ exports.dailyStats = onSchedule({
 });
 
 // HTTP Function to receive telemetry from IoT device
-// Ideally, secure this with an API Key or Auth token
+// Secured with API Key validation
 exports.updateTelemetry = onRequest({ cors: true }, async (request, response) => {
   // Check for POST method
   if (request.method !== 'POST') {
     response.status(405).send('Method Not Allowed');
+    return;
+  }
+
+  // --- API KEY VALIDATION ---
+  // The API key should be set via: firebase functions:config:set iot.api_key="your-secret-key"
+  // Or use defineSecret() for better security in production
+  const apiKey = request.headers['x-api-key'];
+  const EXPECTED_API_KEY = process.env.IOT_API_KEY || 'kandangku-iot-secret-2026';
+
+  if (!apiKey || apiKey !== EXPECTED_API_KEY) {
+    console.warn('Unauthorized telemetry attempt from:', request.ip);
+    response.status(401).json({
+      status: 'error',
+      message: 'Unauthorized: Invalid or missing API Key'
+    });
     return;
   }
 

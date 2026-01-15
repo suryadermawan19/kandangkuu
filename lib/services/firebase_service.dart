@@ -157,6 +157,28 @@ class FirebaseService {
     }
   }
 
+  /// Resolve Firebase Storage path to download URL
+  /// Handles: full URLs (returns as-is), storage paths (resolves to URL)
+  Future<String?> getImageUrl(String imagePath) async {
+    if (imagePath.isEmpty) return null;
+
+    // Already a full URL - return as-is
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      return imagePath;
+    }
+
+    // It's a Storage path - resolve to download URL
+    try {
+      final ref = _storage.ref().child(imagePath);
+      return await ref.getDownloadURL();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error resolving image URL for $imagePath: $e');
+      }
+      return null;
+    }
+  }
+
   // Actuator Control (Manual Override)
   Future<void> updateActuatorState({
     bool? isFanOn,
