@@ -22,6 +22,22 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
   // Ensure data integrity
   if (!newData) return null;
 
+  // --- FETCH DYNAMIC THRESHOLDS FROM FIRESTORE ---
+  let maxTemp = 30.0;  // Default
+  let maxAmmonia = 20.0;  // Default
+
+  try {
+    const configDoc = await admin.firestore().collection('config').doc('thresholds').get();
+    if (configDoc.exists) {
+      const configData = configDoc.data();
+      maxTemp = configData.max_temperature || 30.0;
+      maxAmmonia = configData.max_ammonia || 20.0;
+    }
+  } catch (e) {
+    console.error("Error fetching thresholds config:", e);
+    // Continue with defaults
+  }
+
   const ammonia = newData.ammonia || 0;
   const temp = newData.temperature || 0;
   const visionScore = newData.vision_score || 0;
@@ -34,13 +50,13 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
   const updates = {};
   let stateChanged = false;
 
-  // --- AUTOMATION LOGIC ---
+  // --- AUTOMATION LOGIC (Using Dynamic Thresholds) ---
   if (isAutoMode) {
     const currentFanState = newData.fan_status || false;
     const currentHeaterState = newData.heater_status || false;
 
-    // Fan Logic
-    const needsFan = ammonia > 20 || temp > 30;
+    // Fan Logic - Using dynamic thresholds
+    const needsFan = ammonia > maxAmmonia || temp > maxTemp;
     let newFanState = currentFanState;
 
     const lastFanToggle = newData.last_fan_toggle_timestamp ? newData.last_fan_toggle_timestamp.toDate().getTime() : 0;
@@ -48,7 +64,7 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
     const fanTimePassed = (now - lastFanToggle) >= MIN_RUN_TIME_MS;
 
     if (currentFanState) {
-      const safeToTurnOff = ammonia < (20 - HYSTERESIS_BUFFER_AMMONIA) && temp < (30 - HYSTERESIS_BUFFER_TEMP);
+      const safeToTurnOff = ammonia < (maxAmmonia - HYSTERESIS_BUFFER_AMMONIA) && temp < (maxTemp - HYSTERESIS_BUFFER_TEMP);
       if (safeToTurnOff && fanTimePassed) {
         newFanState = false;
       }
@@ -89,7 +105,7 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
     }
   }
 
-  // --- ALERT LOGIC ---
+  // --- ALERT LOGIC (Using Dynamic Thresholds) ---
   const prevAmmonia = previousData ? (previousData.ammonia || 0) : 0;
   const prevTemp = previousData ? (previousData.temperature || 0) : 0;
   const prevFeed = previousData ? (previousData.feed_weight || 0) : 0;
@@ -97,9 +113,9 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
 
   const sendAlerts = [];
 
-  // Alert logic as requested: Temp > 30, Ammonia > 20, Feed < 1.0, Water Empty
-  if (ammonia > 20 && prevAmmonia <= 20) sendAlerts.push(`High Ammonia: ${ammonia} ppm`);
-  if (temp > 30 && prevTemp <= 30) sendAlerts.push(`High Temperature: ${temp}°C`);
+  // Alert logic using dynamic thresholds
+  if (ammonia > maxAmmonia && prevAmmonia <= maxAmmonia) sendAlerts.push(`High Ammonia: ${ammonia} ppm`);
+  if (temp > maxTemp && prevTemp <= maxTemp) sendAlerts.push(`High Temperature: ${temp}°C`);
   if (feedWeight < 1.0 && prevFeed >= 1.0) sendAlerts.push(`Low Feed: ${feedWeight} kg`);
   if (waterLevel === 'Empty' && prevWater !== 'Empty') sendAlerts.push(`Water Level Empty!`);
 

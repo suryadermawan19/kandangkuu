@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:kandangku/services/firebase_service.dart';
 import 'package:kandangku/ui/theme/dark_theme.dart';
 
 /// Settings Screen - "Pengaturan" for PoultryVision (Kandangku)
 /// Dark Industrial Green Theme - Bahasa Indonesia
+/// Now with real server config sync
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -11,9 +14,10 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // Threshold Settings
+  // Local state for smooth slider interaction
   double _maxTemperature = 30.0;
   double _maxAmmonia = 20.0;
+  bool _hasInitialized = false;
 
   // Notification Settings
   bool _alarmSoundEnabled = true;
@@ -23,44 +27,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final String _wifiName = 'Wifikossritanjung';
   final bool _isDeviceConnected = true;
 
+  // Loading state for saving
+  bool _isSaving = false;
+
   @override
   Widget build(BuildContext context) {
+    final firebaseService = Provider.of<FirebaseService>(
+      context,
+      listen: false,
+    );
+
     return Scaffold(
       backgroundColor: DarkTheme.backgroundPrimary,
       appBar: _buildAppBar(),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Profile Section
-            _buildProfileCard(),
-            const SizedBox(height: 24),
+      body: StreamBuilder<Map<String, dynamic>>(
+        stream: firebaseService.getConfigStream(),
+        builder: (context, snapshot) {
+          // Initialize local state from server data (only once)
+          if (snapshot.hasData && !_hasInitialized) {
+            final config = snapshot.data!;
+            _maxTemperature =
+                (config['max_temperature'] as num?)?.toDouble() ?? 30.0;
+            _maxAmmonia = (config['max_ammonia'] as num?)?.toDouble() ?? 20.0;
+            _hasInitialized = true;
+          }
 
-            // Threshold Settings Section
-            _buildSectionTitle('Ambang Batas Alarm'),
-            const SizedBox(height: 12),
-            _buildThresholdSettings(),
-            const SizedBox(height: 24),
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Profile Section
+                _buildProfileCard(),
+                const SizedBox(height: 24),
 
-            // Device Configuration Section
-            _buildSectionTitle('Perangkat IoT'),
-            const SizedBox(height: 12),
-            _buildDeviceSettings(),
-            const SizedBox(height: 24),
+                // Threshold Settings Section
+                _buildSectionTitle('Ambang Batas Alarm'),
+                const SizedBox(height: 12),
+                _buildThresholdSettings(firebaseService),
+                const SizedBox(height: 24),
 
-            // Notification Settings Section
-            _buildSectionTitle('Notifikasi'),
-            const SizedBox(height: 12),
-            _buildNotificationSettings(),
-            const SizedBox(height: 32),
+                // Device Configuration Section
+                _buildSectionTitle('Perangkat IoT'),
+                const SizedBox(height: 12),
+                _buildDeviceSettings(),
+                const SizedBox(height: 24),
 
-            // Footer
-            _buildFooter(),
-            const SizedBox(height: 40),
-          ],
-        ),
+                // Notification Settings Section
+                _buildSectionTitle('Notifikasi'),
+                const SizedBox(height: 12),
+                _buildNotificationSettings(),
+                const SizedBox(height: 32),
+
+                // Footer
+                _buildFooter(firebaseService),
+                const SizedBox(height: 40),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -90,6 +116,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // ============ PROFILE SECTION ============
   Widget _buildProfileCard() {
+    final firebaseService = Provider.of<FirebaseService>(
+      context,
+      listen: false,
+    );
+    final user = firebaseService.currentUser;
+    final email = user?.email ?? 'Pengguna';
+    final initials = email.isNotEmpty
+        ? email.substring(0, 2).toUpperCase()
+        : 'U';
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: DarkTheme.cardDecoration,
@@ -117,10 +153,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-            child: const Center(
+            child: Center(
               child: Text(
-                'PB',
-                style: TextStyle(
+                initials,
+                style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
                   color: DarkTheme.deepForestBlack,
@@ -134,17 +170,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text(
-                  'Pak Budi',
-                  style: TextStyle(
-                    fontSize: 20,
+                  email,
+                  style: const TextStyle(
+                    fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: DarkTheme.textPrimary,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                SizedBox(height: 4),
-                Text(
+                const SizedBox(height: 4),
+                const Text(
                   'Pemilik Kandang',
                   style: TextStyle(
                     fontSize: 14,
@@ -180,7 +218,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // ============ THRESHOLD SETTINGS ============
-  Widget _buildThresholdSettings() {
+  Widget _buildThresholdSettings(FirebaseService firebaseService) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: DarkTheme.cardDecoration,
@@ -197,6 +235,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             max: 40.0,
             divisions: 30,
             onChanged: (val) => setState(() => _maxTemperature = val),
+            onChangeEnd: (val) => _saveThresholds(firebaseService),
           ),
 
           const SizedBox(height: 20),
@@ -214,10 +253,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
             max: 50.0,
             divisions: 40,
             onChanged: (val) => setState(() => _maxAmmonia = val),
+            onChangeEnd: (val) => _saveThresholds(firebaseService),
           ),
+
+          // Sync indicator
+          if (_isSaving)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        DarkTheme.neonGreen.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Menyimpan ke server...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: DarkTheme.paleGreen.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  Future<void> _saveThresholds(FirebaseService firebaseService) async {
+    setState(() => _isSaving = true);
+
+    try {
+      await firebaseService.updateThresholds(_maxTemperature, _maxAmmonia);
+      if (mounted) {
+        _showSnackbar('Pengaturan tersimpan');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackbar('Gagal menyimpan pengaturan');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   Widget _buildThresholdItem({
@@ -230,6 +318,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required double max,
     required int divisions,
     required ValueChanged<double> onChanged,
+    required ValueChanged<double> onChangeEnd,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -292,6 +381,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             max: max,
             divisions: divisions,
             onChanged: onChanged,
+            onChangeEnd: onChangeEnd,
           ),
         ),
         // Min/Max Labels
@@ -551,7 +641,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // ============ FOOTER ============
-  Widget _buildFooter() {
+  Widget _buildFooter(FirebaseService firebaseService) {
     return Column(
       children: [
         // App Version
@@ -570,7 +660,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: () => _showLogoutConfirmation(),
+            onPressed: () => _showLogoutConfirmation(firebaseService),
             icon: const Icon(Icons.logout_rounded, size: 20),
             label: const Text(
               'Keluar',
@@ -643,7 +733,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showLogoutConfirmation() {
+  void _showLogoutConfirmation(FirebaseService firebaseService) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -666,9 +756,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _showSnackbar('Berhasil keluar');
+            onPressed: () async {
+              Navigator.pop(context); // Close dialog
+              await firebaseService.signOut();
+              // AuthWrapper will handle navigation to login screen
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: DarkTheme.statusDanger,

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:provider/provider.dart';
+import 'package:kandangku/services/firebase_service.dart';
 import 'package:kandangku/ui/theme/dark_theme.dart';
 
 /// History Screen - "Riwayat Sensor" for PoultryVision (Kandangku)
 /// Dark Industrial Green Theme with fl_chart visualizations
-/// Now supports 4 metric charts: Suhu, Amonia, Pakan, Air
+/// Now fetches REAL data from Firestore telemetry_history collection
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
@@ -16,11 +18,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   // Selected time filter index: 0 = 24 Jam, 1 = 7 Hari, 2 = 30 Hari
   int _selectedFilterIndex = 0;
 
-  // Selected metric index: 0 = Suhu, 1 = Amonia, 2 = Pakan, 3 = Air
+  // Selected metric index: 0 = Suhu, 1 = Kelembapan, 2 = Amonia, 3 = Pakan, 4 = Air
   int _selectedMetricIndex = 0;
 
   // Filter options in Bahasa Indonesia
   final List<String> _filterOptions = ['24 Jam', '7 Hari', '30 Hari'];
+
+  // Hours for each filter
+  final List<int> _filterHours = [24, 168, 720]; // 24h, 7 days, 30 days
 
   // Metric options in Bahasa Indonesia
   final List<Map<String, dynamic>> _metricOptions = [
@@ -31,126 +36,117 @@ class _HistoryScreenState extends State<HistoryScreen> {
     {'label': 'Air', 'icon': Icons.water_drop_rounded},
   ];
 
-  // --- Dummy Data for Temperature Chart (FlSpot) ---
-  List<FlSpot> get _temperatureData {
-    switch (_selectedFilterIndex) {
-      case 0: // 24 Hours - hourly data
-        return const [
-          FlSpot(0, 26),
-          FlSpot(2, 25),
-          FlSpot(4, 24.5),
-          FlSpot(6, 25),
-          FlSpot(8, 27),
-          FlSpot(10, 29),
-          FlSpot(12, 31),
-          FlSpot(14, 32),
-          FlSpot(16, 30),
-          FlSpot(18, 28),
-          FlSpot(20, 27),
-          FlSpot(22, 26.5),
-          FlSpot(24, 26),
-        ];
-      case 1: // 7 Days - daily averages
-        return const [
-          FlSpot(0, 27),
-          FlSpot(1, 28),
-          FlSpot(2, 29),
-          FlSpot(3, 28.5),
-          FlSpot(4, 27),
-          FlSpot(5, 28),
-          FlSpot(6, 28.5),
-        ];
-      case 2: // 30 Days - daily averages
-        return const [
-          FlSpot(0, 26),
-          FlSpot(5, 27),
-          FlSpot(10, 28),
-          FlSpot(15, 29),
-          FlSpot(20, 28),
-          FlSpot(25, 27),
-          FlSpot(30, 28),
-        ];
-      default:
-        return const [];
+  // Real data from Firestore
+  List<Map<String, dynamic>> _historyData = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHistoryData();
+  }
+
+  /// Fetch history data based on selected filter
+  Future<void> _fetchHistoryData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final firebaseService = Provider.of<FirebaseService>(
+        context,
+        listen: false,
+      );
+      final hours = _filterHours[_selectedFilterIndex];
+      final data = await firebaseService.getTelemetryHistoryForRange(hours);
+
+      if (mounted) {
+        setState(() {
+          _historyData = data;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Gagal memuat data: $e';
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  // --- Dummy Data for Humidity Chart (FlSpot) ---
-  List<FlSpot> get _humidityData {
-    switch (_selectedFilterIndex) {
-      case 0: // 24 Hours - hourly data
-        return const [
-          FlSpot(0, 65),
-          FlSpot(2, 68),
-          FlSpot(4, 72),
-          FlSpot(6, 75),
-          FlSpot(8, 70),
-          FlSpot(10, 62),
-          FlSpot(12, 55),
-          FlSpot(14, 52),
-          FlSpot(16, 58),
-          FlSpot(18, 63),
-          FlSpot(20, 68),
-          FlSpot(22, 70),
-          FlSpot(24, 67),
-        ];
-      case 1: // 7 Days - daily averages
-        return const [
-          FlSpot(0, 62),
-          FlSpot(1, 65),
-          FlSpot(2, 68),
-          FlSpot(3, 70),
-          FlSpot(4, 66),
-          FlSpot(5, 63),
-          FlSpot(6, 65),
-        ];
-      case 2: // 30 Days - daily averages
-        return const [
-          FlSpot(0, 60),
-          FlSpot(5, 65),
-          FlSpot(10, 70),
-          FlSpot(15, 68),
-          FlSpot(20, 62),
-          FlSpot(25, 58),
-          FlSpot(30, 64),
-        ];
-      default:
-        return const [];
+  /// Convert history data to FlSpot for line charts
+  /// Groups data by time buckets for cleaner visualization
+  List<FlSpot> _getLineChartData(String field) {
+    if (_historyData.isEmpty) return [];
+
+    final spots = <FlSpot>[];
+    final now = DateTime.now();
+
+    for (var i = 0; i < _historyData.length; i++) {
+      final entry = _historyData[i];
+      final timestamp = entry['timestamp'] as DateTime?;
+      final value = (entry[field] as num?)?.toDouble() ?? 0;
+
+      if (timestamp != null) {
+        double x;
+        if (_selectedFilterIndex == 0) {
+          // 24 hours: x = hours ago
+          x = 24 - now.difference(timestamp).inMinutes / 60.0;
+        } else if (_selectedFilterIndex == 1) {
+          // 7 days: x = days (0-6)
+          x = 7 - now.difference(timestamp).inHours / 24.0;
+        } else {
+          // 30 days: x = days (0-30)
+          x = 30 - now.difference(timestamp).inHours / 24.0;
+        }
+        if (x >= 0) {
+          spots.add(FlSpot(x, value));
+        }
+      }
     }
+
+    // Sort by x value for proper line rendering
+    spots.sort((a, b) => a.x.compareTo(b.x));
+    return spots;
   }
 
-  // --- Dummy Data for Ammonia Bar Chart ---
-  List<BarChartGroupData> get _ammoniaData {
-    switch (_selectedFilterIndex) {
-      case 0: // 24 Hours - 6 data points (every 4 hours)
-        return [
-          _makeAmmoniaBar(0, 8),
-          _makeAmmoniaBar(1, 12),
-          _makeAmmoniaBar(2, 18),
-          _makeAmmoniaBar(3, 22),
-          _makeAmmoniaBar(4, 15),
-          _makeAmmoniaBar(5, 10),
-        ];
-      case 1: // 7 Days
-        return [
-          _makeAmmoniaBar(0, 10),
-          _makeAmmoniaBar(1, 14),
-          _makeAmmoniaBar(2, 16),
-          _makeAmmoniaBar(3, 12),
-          _makeAmmoniaBar(4, 18),
-          _makeAmmoniaBar(5, 15),
-          _makeAmmoniaBar(6, 11),
-        ];
-      case 2: // 30 Days (weekly averages)
-        return [
-          _makeAmmoniaBar(0, 12),
-          _makeAmmoniaBar(1, 15),
-          _makeAmmoniaBar(2, 18),
-          _makeAmmoniaBar(3, 14),
-        ];
-      default:
-        return [];
+  /// Convert history data to BarChartGroupData for ammonia
+  List<BarChartGroupData> _getAmmoniaBarData() {
+    if (_historyData.isEmpty) return [];
+
+    // Group data into buckets
+    final bucketCount = _selectedFilterIndex == 0
+        ? 6
+        : (_selectedFilterIndex == 1 ? 7 : 4);
+    final buckets = List<List<double>>.generate(bucketCount, (_) => []);
+
+    final now = DateTime.now();
+    final totalHours = _filterHours[_selectedFilterIndex];
+
+    for (final entry in _historyData) {
+      final timestamp = entry['timestamp'] as DateTime?;
+      final ammonia = (entry['ammonia'] as num?)?.toDouble() ?? 0;
+
+      if (timestamp != null) {
+        final hoursAgo = now.difference(timestamp).inHours;
+        final bucketIndex = ((totalHours - hoursAgo) * bucketCount / totalHours)
+            .floor()
+            .clamp(0, bucketCount - 1);
+        buckets[bucketIndex].add(ammonia);
+      }
     }
+
+    // Calculate averages and create bars
+    return List.generate(bucketCount, (i) {
+      final avg = buckets[i].isEmpty
+          ? 0.0
+          : buckets[i].reduce((a, b) => a + b) / buckets[i].length;
+      return _makeAmmoniaBar(i, avg);
+    });
   }
 
   BarChartGroupData _makeAmmoniaBar(int x, double y) {
@@ -173,76 +169,65 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  // --- Dummy Data for Feed Consumption (Pakan) Line Chart ---
-  List<FlSpot> get _feedData {
-    switch (_selectedFilterIndex) {
-      case 0: // 24 Hours - decreasing trend
-        return const [
-          FlSpot(0, 8.0),
-          FlSpot(4, 7.2),
-          FlSpot(8, 6.5),
-          FlSpot(12, 5.8),
-          FlSpot(16, 5.0),
-          FlSpot(20, 4.2),
-          FlSpot(24, 4.0),
-        ];
-      case 1: // 7 Days - decreasing with refill
-        return const [
-          FlSpot(0, 10.0),
-          FlSpot(1, 8.5),
-          FlSpot(2, 7.0),
-          FlSpot(3, 5.5),
-          FlSpot(4, 9.0), // Refill
-          FlSpot(5, 7.5),
-          FlSpot(6, 6.0),
-        ];
-      case 2: // 30 Days - pattern with refills
-        return const [
-          FlSpot(0, 10.0),
-          FlSpot(5, 5.0),
-          FlSpot(6, 10.0), // Refill
-          FlSpot(12, 4.0),
-          FlSpot(13, 10.0), // Refill
-          FlSpot(20, 5.0),
-          FlSpot(21, 10.0), // Refill
-          FlSpot(30, 6.0),
-        ];
-      default:
-        return const [];
+  /// Convert history data to BarChartGroupData for water level
+  List<BarChartGroupData> _getWaterBarData() {
+    if (_historyData.isEmpty) return [];
+
+    // Group data into buckets
+    final bucketCount = _selectedFilterIndex == 0
+        ? 6
+        : (_selectedFilterIndex == 1 ? 7 : 4);
+    final buckets = List<List<String>>.generate(bucketCount, (_) => []);
+
+    final now = DateTime.now();
+    final totalHours = _filterHours[_selectedFilterIndex];
+
+    for (final entry in _historyData) {
+      final timestamp = entry['timestamp'] as DateTime?;
+      final waterLevel = (entry['water_level'] as String?) ?? 'Unknown';
+
+      if (timestamp != null) {
+        final hoursAgo = now.difference(timestamp).inHours;
+        final bucketIndex = ((totalHours - hoursAgo) * bucketCount / totalHours)
+            .floor()
+            .clamp(0, bucketCount - 1);
+        buckets[bucketIndex].add(waterLevel);
+      }
     }
+
+    // Calculate most common level and create bars
+    return List.generate(bucketCount, (i) {
+      double level = 2; // Default to Normal
+      if (buckets[i].isNotEmpty) {
+        // Count occurrences
+        final counts = <String, int>{};
+        for (final wl in buckets[i]) {
+          counts[wl] = (counts[wl] ?? 0) + 1;
+        }
+        final mostCommon = counts.entries
+            .reduce((a, b) => a.value > b.value ? a : b)
+            .key;
+        level = _waterLevelToNumber(mostCommon);
+      }
+      return _makeWaterBar(i, level);
+    });
   }
 
-  // --- Dummy Data for Water Level Status Bar Chart ---
-  List<BarChartGroupData> get _waterData {
-    switch (_selectedFilterIndex) {
-      case 0: // 24 Hours - 6 data points (status: 3=Penuh, 2=Normal, 1=Rendah, 0=Habis)
-        return [
-          _makeWaterBar(0, 3), // Penuh
-          _makeWaterBar(1, 3), // Penuh
-          _makeWaterBar(2, 2), // Normal
-          _makeWaterBar(3, 2), // Normal
-          _makeWaterBar(4, 3), // Penuh (refill)
-          _makeWaterBar(5, 3), // Penuh
-        ];
-      case 1: // 7 Days
-        return [
-          _makeWaterBar(0, 3),
-          _makeWaterBar(1, 2),
-          _makeWaterBar(2, 2),
-          _makeWaterBar(3, 1), // Low
-          _makeWaterBar(4, 3), // Refill
-          _makeWaterBar(5, 2),
-          _makeWaterBar(6, 2),
-        ];
-      case 2: // 30 Days (weekly summary)
-        return [
-          _makeWaterBar(0, 3),
-          _makeWaterBar(1, 2),
-          _makeWaterBar(2, 2),
-          _makeWaterBar(3, 3),
-        ];
+  double _waterLevelToNumber(String level) {
+    switch (level.toLowerCase()) {
+      case 'full':
+      case 'penuh':
+        return 3;
+      case 'normal':
+        return 2;
+      case 'low':
+      case 'rendah':
+        return 1;
+      case 'empty':
+      case 'habis':
+        return 0;
       default:
-        return [];
+        return 2;
     }
   }
 
@@ -278,29 +263,44 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  // --- Summary Stats Calculation ---
+  // --- Summary Stats Calculation from real data ---
   double get _averageTemperature {
-    final data = _temperatureData;
-    if (data.isEmpty) return 0;
-    return data.map((e) => e.y).reduce((a, b) => a + b) / data.length;
+    if (_historyData.isEmpty) return 0;
+    final temps = _historyData
+        .map((e) => (e['temperature'] as num?)?.toDouble() ?? 0)
+        .where((t) => t > 0)
+        .toList();
+    if (temps.isEmpty) return 0;
+    return temps.reduce((a, b) => a + b) / temps.length;
   }
 
   double get _peakAmmonia {
-    final data = _ammoniaData;
-    if (data.isEmpty) return 0;
-    return data.map((g) => g.barRods.first.toY).reduce((a, b) => a > b ? a : b);
+    if (_historyData.isEmpty) return 0;
+    final ammonias = _historyData
+        .map((e) => (e['ammonia'] as num?)?.toDouble() ?? 0)
+        .toList();
+    if (ammonias.isEmpty) return 0;
+    return ammonias.reduce((a, b) => a > b ? a : b);
   }
 
   double get _averageFeed {
-    final data = _feedData;
-    if (data.isEmpty) return 0;
-    return data.map((e) => e.y).reduce((a, b) => a + b) / data.length;
+    if (_historyData.isEmpty) return 0;
+    final feeds = _historyData
+        .map((e) => (e['feed_weight'] as num?)?.toDouble() ?? 0)
+        .where((f) => f > 0)
+        .toList();
+    if (feeds.isEmpty) return 0;
+    return feeds.reduce((a, b) => a + b) / feeds.length;
   }
 
   double get _averageHumidity {
-    final data = _humidityData;
-    if (data.isEmpty) return 0;
-    return data.map((e) => e.y).reduce((a, b) => a + b) / data.length;
+    if (_historyData.isEmpty) return 0;
+    final humidities = _historyData
+        .map((e) => (e['humidity'] as num?)?.toDouble() ?? 0)
+        .where((h) => h > 0)
+        .toList();
+    if (humidities.isEmpty) return 0;
+    return humidities.reduce((a, b) => a + b) / humidities.length;
   }
 
   @override
@@ -323,12 +323,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
             const SizedBox(height: 20),
 
             // Dynamic Chart based on selected metric
-            _buildSelectedChart(),
+            _buildChartContent(),
             const SizedBox(height: 24),
 
             // Summary Cards
-            _buildSummaryCards(),
-            const SizedBox(height: 32),
+            if (!_isLoading && _errorMessage == null) ...[
+              _buildSummaryCards(),
+              const SizedBox(height: 32),
+            ],
           ],
         ),
       ),
@@ -347,20 +349,33 @@ class _HistoryScreenState extends State<HistoryScreen> {
         onPressed: () => Navigator.of(context).pop(),
       ),
       title: Column(
-        children: const [
-          Text('Riwayat Sensor', style: DarkTheme.headerTitle),
-          SizedBox(height: 2),
-          Text('Analisis tren sensor kandang', style: DarkTheme.headerSubtitle),
+        children: [
+          const Text('Riwayat Sensor', style: DarkTheme.headerTitle),
+          const SizedBox(height: 2),
+          Text(
+            _historyData.isNotEmpty
+                ? '${_historyData.length} data tersedia'
+                : 'Analisis tren sensor kandang',
+            style: DarkTheme.headerSubtitle,
+          ),
         ],
       ),
       centerTitle: true,
       actions: [
         IconButton(
-          icon: const Icon(Icons.refresh_rounded, color: DarkTheme.paleGreen),
-          onPressed: () {
-            // Refresh data action
-            setState(() {});
-          },
+          icon: _isLoading
+              ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      DarkTheme.neonGreen.withValues(alpha: 0.7),
+                    ),
+                  ),
+                )
+              : const Icon(Icons.refresh_rounded, color: DarkTheme.paleGreen),
+          onPressed: _isLoading ? null : _fetchHistoryData,
         ),
       ],
     );
@@ -378,7 +393,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
           final bool isSelected = _selectedFilterIndex == index;
           return Expanded(
             child: GestureDetector(
-              onTap: () => setState(() => _selectedFilterIndex = index),
+              onTap: () {
+                if (_selectedFilterIndex != index) {
+                  setState(() => _selectedFilterIndex = index);
+                  _fetchHistoryData(); // Fetch new data when filter changes
+                }
+              },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -458,7 +478,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     Text(
                       metric['label'] as String,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         fontWeight: FontWeight.w600,
                         color: isSelected
                             ? DarkTheme.textPrimary
@@ -471,6 +491,135 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
           );
         }),
+      ),
+    );
+  }
+
+  Widget _buildChartContent() {
+    if (_isLoading) {
+      return _buildLoadingState();
+    }
+
+    if (_errorMessage != null) {
+      return _buildErrorState();
+    }
+
+    if (_historyData.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    return _buildSelectedChart();
+  }
+
+  Widget _buildLoadingState() {
+    return Container(
+      height: 280,
+      padding: const EdgeInsets.all(20),
+      decoration: DarkTheme.cardDecoration,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 48,
+              height: 48,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  DarkTheme.neonGreen.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Memuat data riwayat...',
+              style: DarkTheme.controlSubtitle.copyWith(
+                color: DarkTheme.paleGreen.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Container(
+      height: 280,
+      padding: const EdgeInsets.all(20),
+      decoration: DarkTheme.cardDecoration,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline_rounded,
+              size: 48,
+              color: DarkTheme.statusDanger.withValues(alpha: 0.7),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Gagal Memuat Data',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: DarkTheme.statusDanger,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage ?? 'Terjadi kesalahan',
+              style: DarkTheme.controlSubtitle.copyWith(
+                color: DarkTheme.paleGreen.withValues(alpha: 0.7),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: _fetchHistoryData,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Coba Lagi'),
+              style: TextButton.styleFrom(foregroundColor: DarkTheme.neonGreen),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      height: 280,
+      padding: const EdgeInsets.all(20),
+      decoration: DarkTheme.cardDecoration,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.show_chart_rounded,
+              size: 48,
+              color: DarkTheme.paleGreen.withValues(alpha: 0.5),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Belum Ada Data',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: DarkTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Data riwayat sensor belum tersedia\nuntuk periode ${_filterOptions[_selectedFilterIndex]}',
+              style: DarkTheme.controlSubtitle.copyWith(
+                color: DarkTheme.paleGreen.withValues(alpha: 0.7),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -493,197 +642,64 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildTemperatureChart() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: DarkTheme.cardDecoration,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Chart Title
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: DarkTheme.neonGreen.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.thermostat_rounded,
-                  color: DarkTheme.neonGreen,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('Grafik Suhu', style: DarkTheme.controlTitle),
-                  Text('Suhu (°C)', style: DarkTheme.controlSubtitle),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-
-          // Line Chart
-          SizedBox(
-            height: 200,
-            child: LineChart(
-              LineChartData(
-                minY: 20,
-                maxY: 40,
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: 5,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: DarkTheme.neonGreen.withValues(alpha: 0.1),
-                      strokeWidth: 1,
-                    );
-                  },
-                ),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 40,
-                      interval: 5,
-                      getTitlesWidget: (value, meta) {
-                        return Text(
-                          '${value.toInt()}°',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: DarkTheme.paleGreen,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      interval: _selectedFilterIndex == 0 ? 6 : 1,
-                      getTitlesWidget: (value, meta) {
-                        String label = '';
-                        if (_selectedFilterIndex == 0) {
-                          label = '${value.toInt()}h';
-                        } else if (_selectedFilterIndex == 1) {
-                          final days = [
-                            'Sen',
-                            'Sel',
-                            'Rab',
-                            'Kam',
-                            'Jum',
-                            'Sab',
-                            'Min',
-                          ];
-                          if (value.toInt() < days.length) {
-                            label = days[value.toInt()];
-                          }
-                        } else {
-                          label = 'M${(value / 7).ceil()}';
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            label,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: DarkTheme.paleGreen,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: _temperatureData,
-                    isCurved: true,
-                    curveSmoothness: 0.35,
-                    color: DarkTheme.neonGreen,
-                    barWidth: 3,
-                    isStrokeCapRound: true,
-                    dotData: const FlDotData(show: false),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          DarkTheme.neonGreen.withValues(alpha: 0.3),
-                          DarkTheme.neonGreen.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-                // Threshold line at 30°C
-                extraLinesData: ExtraLinesData(
-                  horizontalLines: [
-                    HorizontalLine(
-                      y: 30,
-                      color: DarkTheme.statusDanger,
-                      strokeWidth: 2,
-                      dashArray: [8, 4],
-                      label: HorizontalLineLabel(
-                        show: true,
-                        alignment: Alignment.topRight,
-                        padding: const EdgeInsets.only(right: 5, bottom: 5),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: DarkTheme.statusDanger,
-                        ),
-                        labelResolver: (_) => 'Batas 30°C',
-                      ),
-                    ),
-                  ],
-                ),
-                lineTouchData: LineTouchData(
-                  touchTooltipData: LineTouchTooltipData(
-                    tooltipBgColor: DarkTheme.deepForestBlack.withValues(
-                      alpha: 0.9,
-                    ),
-                    tooltipRoundedRadius: 10,
-                    tooltipPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    getTooltipItems: (touchedSpots) {
-                      return touchedSpots.map((spot) {
-                        return LineTooltipItem(
-                          '${spot.y.toStringAsFixed(1)}°C',
-                          const TextStyle(
-                            color: DarkTheme.neonGreen,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
-                        );
-                      }).toList();
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    final data = _getLineChartData('temperature');
+    return _buildLineChartCard(
+      icon: Icons.thermostat_rounded,
+      title: 'Grafik Suhu',
+      subtitle: 'Suhu (°C)',
+      data: data,
+      minY: 20,
+      maxY: 40,
+      yInterval: 5,
+      thresholdY: 30,
+      thresholdLabel: 'Batas 30°C',
+      tooltipSuffix: '°C',
     );
   }
 
   Widget _buildHumidityChart() {
+    final data = _getLineChartData('humidity');
+    return _buildLineChartCard(
+      icon: Icons.opacity,
+      title: 'Grafik Kelembapan',
+      subtitle: 'Kelembapan (%)',
+      data: data,
+      minY: 0,
+      maxY: 100,
+      yInterval: 20,
+      tooltipSuffix: '%',
+      lineColor: const Color(0xFF64B5F6), // Blue for humidity
+    );
+  }
+
+  Widget _buildFeedChart() {
+    final data = _getLineChartData('feed_weight');
+    return _buildLineChartCard(
+      icon: Icons.grain_rounded,
+      title: 'Grafik Pakan',
+      subtitle: 'Sisa Pakan (g)',
+      data: data,
+      minY: 0,
+      maxY: 1000,
+      yInterval: 200,
+      tooltipSuffix: ' g',
+      lineColor: DarkTheme.statusWarning, // Orange for feed
+    );
+  }
+
+  Widget _buildLineChartCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required List<FlSpot> data,
+    required double minY,
+    required double maxY,
+    required double yInterval,
+    required String tooltipSuffix,
+    double? thresholdY,
+    String? thresholdLabel,
+    Color lineColor = DarkTheme.neonGreen,
+  }) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: DarkTheme.cardDecoration,
@@ -696,21 +712,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: DarkTheme.neonGreen.withValues(alpha: 0.15),
+                  color: lineColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(
-                  Icons.opacity,
-                  color: DarkTheme.neonGreen,
-                  size: 22,
-                ),
+                child: Icon(icon, color: lineColor, size: 22),
               ),
               const SizedBox(width: 12),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('Grafik Kelembapan', style: DarkTheme.controlTitle),
-                  Text('Kelembapan (%)', style: DarkTheme.controlSubtitle),
+                children: [
+                  Text(title, style: DarkTheme.controlTitle),
+                  Text(subtitle, style: DarkTheme.controlSubtitle),
                 ],
               ),
             ],
@@ -720,171 +732,167 @@ class _HistoryScreenState extends State<HistoryScreen> {
           // Line Chart
           SizedBox(
             height: 200,
-            child: LineChart(
-              LineChartData(
-                minY: 0,
-                maxY: 100,
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: 20,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: DarkTheme.neonGreen.withValues(alpha: 0.1),
-                      strokeWidth: 1,
-                    );
-                  },
-                ),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 40,
-                      interval: 20,
-                      getTitlesWidget: (value, meta) {
-                        return Text(
-                          '${value.toInt()}%',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: DarkTheme.paleGreen,
-                          ),
-                        );
-                      },
+            child: data.isEmpty
+                ? Center(
+                    child: Text(
+                      'Tidak ada data',
+                      style: DarkTheme.controlSubtitle.copyWith(
+                        color: DarkTheme.paleGreen.withValues(alpha: 0.5),
+                      ),
                     ),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      interval: _selectedFilterIndex == 0 ? 6 : 1,
-                      getTitlesWidget: (value, meta) {
-                        String label = '';
-                        if (_selectedFilterIndex == 0) {
-                          label = '${value.toInt()}h';
-                        } else if (_selectedFilterIndex == 1) {
-                          final days = [
-                            'Sen',
-                            'Sel',
-                            'Rab',
-                            'Kam',
-                            'Jum',
-                            'Sab',
-                            'Min',
-                          ];
-                          if (value.toInt() < days.length) {
-                            label = days[value.toInt()];
-                          }
-                        } else {
-                          label = 'M${(value / 7).ceil()}';
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            label,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: DarkTheme.paleGreen,
+                  )
+                : LineChart(
+                    LineChartData(
+                      minY: minY,
+                      maxY: maxY,
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: yInterval,
+                        getDrawingHorizontalLine: (value) {
+                          return FlLine(
+                            color: DarkTheme.neonGreen.withValues(alpha: 0.1),
+                            strokeWidth: 1,
+                          );
+                        },
+                      ),
+                      titlesData: FlTitlesData(
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 40,
+                            interval: yInterval,
+                            getTitlesWidget: (value, meta) {
+                              return Text(
+                                value.toInt().toString(),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: DarkTheme.paleGreen,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 30,
+                            interval: _selectedFilterIndex == 0 ? 6 : 1,
+                            getTitlesWidget: (value, meta) {
+                              String label = '';
+                              if (_selectedFilterIndex == 0) {
+                                label = '${value.toInt()}h';
+                              } else if (_selectedFilterIndex == 1) {
+                                final days = [
+                                  'Sen',
+                                  'Sel',
+                                  'Rab',
+                                  'Kam',
+                                  'Jum',
+                                  'Sab',
+                                  'Min',
+                                ];
+                                if (value.toInt() < days.length) {
+                                  label = days[value.toInt()];
+                                }
+                              } else {
+                                label = 'H${value.toInt()}';
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  label,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: DarkTheme.paleGreen,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                      ),
+                      borderData: FlBorderData(show: false),
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: data,
+                          isCurved: true,
+                          curveSmoothness: 0.35,
+                          color: lineColor,
+                          barWidth: 3,
+                          isStrokeCapRound: true,
+                          dotData: const FlDotData(show: false),
+                          belowBarData: BarAreaData(
+                            show: true,
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                lineColor.withValues(alpha: 0.3),
+                                lineColor.withValues(alpha: 0.0),
+                              ],
                             ),
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: _humidityData,
-                    isCurved: true,
-                    curveSmoothness: 0.35,
-                    color: DarkTheme.neonGreen,
-                    barWidth: 3,
-                    isStrokeCapRound: true,
-                    dotData: const FlDotData(show: false),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          DarkTheme.neonGreen.withValues(alpha: 0.3),
-                          DarkTheme.neonGreen.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-                // Ideal zone reference lines at 50% and 70%
-                extraLinesData: ExtraLinesData(
-                  horizontalLines: [
-                    HorizontalLine(
-                      y: 50,
-                      color: DarkTheme.statusSafe,
-                      strokeWidth: 2,
-                      dashArray: [8, 4],
-                      label: HorizontalLineLabel(
-                        show: true,
-                        alignment: Alignment.topLeft,
-                        padding: const EdgeInsets.only(left: 5, bottom: 5),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: DarkTheme.statusSafe,
                         ),
-                        labelResolver: (_) => 'Min Ideal 50%',
-                      ),
-                    ),
-                    HorizontalLine(
-                      y: 70,
-                      color: DarkTheme.statusSafe,
-                      strokeWidth: 2,
-                      dashArray: [8, 4],
-                      label: HorizontalLineLabel(
-                        show: true,
-                        alignment: Alignment.topRight,
-                        padding: const EdgeInsets.only(right: 5, bottom: 5),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: DarkTheme.statusSafe,
-                        ),
-                        labelResolver: (_) => 'Max Ideal 70%',
-                      ),
-                    ),
-                  ],
-                ),
-                lineTouchData: LineTouchData(
-                  touchTooltipData: LineTouchTooltipData(
-                    tooltipBgColor: DarkTheme.deepForestBlack.withValues(
-                      alpha: 0.9,
-                    ),
-                    tooltipRoundedRadius: 10,
-                    tooltipPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    getTooltipItems: (touchedSpots) {
-                      return touchedSpots.map((spot) {
-                        return LineTooltipItem(
-                          '${spot.y.toStringAsFixed(1)}%',
-                          const TextStyle(
-                            color: DarkTheme.neonGreen,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
+                      ],
+                      extraLinesData: thresholdY != null
+                          ? ExtraLinesData(
+                              horizontalLines: [
+                                HorizontalLine(
+                                  y: thresholdY,
+                                  color: DarkTheme.statusDanger,
+                                  strokeWidth: 2,
+                                  dashArray: [8, 4],
+                                  label: HorizontalLineLabel(
+                                    show: true,
+                                    alignment: Alignment.topRight,
+                                    padding: const EdgeInsets.only(
+                                      right: 5,
+                                      bottom: 5,
+                                    ),
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: DarkTheme.statusDanger,
+                                    ),
+                                    labelResolver: (_) => thresholdLabel ?? '',
+                                  ),
+                                ),
+                              ],
+                            )
+                          : null,
+                      lineTouchData: LineTouchData(
+                        touchTooltipData: LineTouchTooltipData(
+                          tooltipBgColor: DarkTheme.deepForestBlack.withValues(
+                            alpha: 0.9,
                           ),
-                        );
-                      }).toList();
-                    },
+                          tooltipRoundedRadius: 10,
+                          tooltipPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          getTooltipItems: (touchedSpots) {
+                            return touchedSpots.map((spot) {
+                              return LineTooltipItem(
+                                '${spot.y.toStringAsFixed(1)}$tooltipSuffix',
+                                TextStyle(
+                                  color: lineColor,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                ),
+                              );
+                            }).toList();
+                          },
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
           ),
         ],
       ),
@@ -892,6 +900,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildAmmoniaChart() {
+    final data = _getAmmoniaBarData();
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: DarkTheme.cardDecoration,
@@ -914,11 +923,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ),
               const SizedBox(width: 12),
-              Column(
+              const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   Text('Grafik Amonia', style: DarkTheme.controlTitle),
-                  Text('Amonia (ppm)', style: DarkTheme.controlSubtitle),
+                  Text('Level Amonia (ppm)', style: DarkTheme.controlSubtitle),
                 ],
               ),
             ],
@@ -927,346 +936,150 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
           // Bar Chart
           SizedBox(
-            height: 180,
-            child: BarChart(
-              BarChartData(
-                maxY: 50,
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: 10,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: DarkTheme.neonGreen.withValues(alpha: 0.1),
-                      strokeWidth: 1,
-                    );
-                  },
-                ),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 35,
-                      interval: 10,
-                      getTitlesWidget: (value, meta) {
-                        return Text(
-                          '${value.toInt()}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: DarkTheme.paleGreen,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      getTitlesWidget: (value, meta) {
-                        String label = '';
-                        if (_selectedFilterIndex == 0) {
-                          final times = [
-                            '00:00',
-                            '04:00',
-                            '08:00',
-                            '12:00',
-                            '16:00',
-                            '20:00',
-                          ];
-                          if (value.toInt() < times.length) {
-                            label = times[value.toInt()];
-                          }
-                        } else if (_selectedFilterIndex == 1) {
-                          final days = [
-                            'Sen',
-                            'Sel',
-                            'Rab',
-                            'Kam',
-                            'Jum',
-                            'Sab',
-                            'Min',
-                          ];
-                          if (value.toInt() < days.length) {
-                            label = days[value.toInt()];
-                          }
-                        } else {
-                          final weeks = ['M1', 'M2', 'M3', 'M4'];
-                          if (value.toInt() < weeks.length) {
-                            label = weeks[value.toInt()];
-                          }
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            label,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: DarkTheme.paleGreen,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                barGroups: _ammoniaData,
-                // Threshold line at 20 ppm
-                extraLinesData: ExtraLinesData(
-                  horizontalLines: [
-                    HorizontalLine(
-                      y: 20,
-                      color: DarkTheme.statusDanger,
-                      strokeWidth: 2,
-                      dashArray: [8, 4],
-                      label: HorizontalLineLabel(
-                        show: true,
-                        alignment: Alignment.topRight,
-                        padding: const EdgeInsets.only(right: 5, bottom: 5),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: DarkTheme.statusDanger,
-                        ),
-                        labelResolver: (_) => 'Batas 20 ppm',
+            height: 200,
+            child: data.isEmpty
+                ? Center(
+                    child: Text(
+                      'Tidak ada data',
+                      style: DarkTheme.controlSubtitle.copyWith(
+                        color: DarkTheme.paleGreen.withValues(alpha: 0.5),
                       ),
                     ),
-                  ],
-                ),
-                barTouchData: BarTouchData(
-                  touchTooltipData: BarTouchTooltipData(
-                    tooltipBgColor: DarkTheme.deepForestBlack.withValues(
-                      alpha: 0.9,
-                    ),
-                    tooltipRoundedRadius: 10,
-                    tooltipPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                      return BarTooltipItem(
-                        '${rod.toY.toStringAsFixed(0)} ppm',
-                        TextStyle(
-                          color: rod.color,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFeedChart() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: DarkTheme.cardDecoration,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Chart Title
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: DarkTheme.statusWarning.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.grain_rounded,
-                  color: DarkTheme.statusWarning,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('Konsumsi Pakan', style: DarkTheme.controlTitle),
-                  Text('Sisa Pakan (kg)', style: DarkTheme.controlSubtitle),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-
-          // Line Chart (Decreasing trend)
-          SizedBox(
-            height: 200,
-            child: LineChart(
-              LineChartData(
-                minY: 0,
-                maxY: 12,
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: 2,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: DarkTheme.neonGreen.withValues(alpha: 0.1),
-                      strokeWidth: 1,
-                    );
-                  },
-                ),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 40,
-                      interval: 2,
-                      getTitlesWidget: (value, meta) {
-                        return Text(
-                          '${value.toInt()} kg',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: DarkTheme.paleGreen,
+                  )
+                : BarChart(
+                    BarChartData(
+                      maxY: 50,
+                      barGroups: data,
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: 10,
+                        getDrawingHorizontalLine: (value) {
+                          return FlLine(
+                            color: DarkTheme.neonGreen.withValues(alpha: 0.1),
+                            strokeWidth: 1,
+                          );
+                        },
+                      ),
+                      titlesData: FlTitlesData(
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 40,
+                            interval: 10,
+                            getTitlesWidget: (value, meta) {
+                              return Text(
+                                '${value.toInt()}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: DarkTheme.paleGreen,
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      interval: _selectedFilterIndex == 0
-                          ? 6
-                          : (_selectedFilterIndex == 1 ? 1 : 5),
-                      getTitlesWidget: (value, meta) {
-                        String label = '';
-                        if (_selectedFilterIndex == 0) {
-                          label = '${value.toInt()}h';
-                        } else if (_selectedFilterIndex == 1) {
-                          final days = [
-                            'Sen',
-                            'Sel',
-                            'Rab',
-                            'Kam',
-                            'Jum',
-                            'Sab',
-                            'Min',
-                          ];
-                          if (value.toInt() < days.length) {
-                            label = days[value.toInt()];
-                          }
-                        } else {
-                          label = 'H${value.toInt()}';
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            label,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: DarkTheme.paleGreen,
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 30,
+                            getTitlesWidget: (value, meta) {
+                              String label = '';
+                              if (_selectedFilterIndex == 0) {
+                                final hours = [
+                                  '00:00',
+                                  '04:00',
+                                  '08:00',
+                                  '12:00',
+                                  '16:00',
+                                  '20:00',
+                                ];
+                                if (value.toInt() < hours.length) {
+                                  label = hours[value.toInt()];
+                                }
+                              } else if (_selectedFilterIndex == 1) {
+                                final days = [
+                                  'Sen',
+                                  'Sel',
+                                  'Rab',
+                                  'Kam',
+                                  'Jum',
+                                  'Sab',
+                                  'Min',
+                                ];
+                                if (value.toInt() < days.length) {
+                                  label = days[value.toInt()];
+                                }
+                              } else {
+                                final weeks = ['M1', 'M2', 'M3', 'M4'];
+                                if (value.toInt() < weeks.length) {
+                                  label = weeks[value.toInt()];
+                                }
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  label,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: DarkTheme.paleGreen,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                      ),
+                      borderData: FlBorderData(show: false),
+                      extraLinesData: ExtraLinesData(
+                        horizontalLines: [
+                          HorizontalLine(
+                            y: 20,
+                            color: DarkTheme.statusDanger,
+                            strokeWidth: 2,
+                            dashArray: [8, 4],
+                            label: HorizontalLineLabel(
+                              show: true,
+                              alignment: Alignment.topRight,
+                              padding: const EdgeInsets.only(
+                                right: 5,
+                                bottom: 5,
+                              ),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: DarkTheme.statusDanger,
+                              ),
+                              labelResolver: (_) => 'Batas 20 ppm',
                             ),
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: _feedData,
-                    isCurved: true,
-                    curveSmoothness: 0.25,
-                    color: DarkTheme.statusWarning,
-                    barWidth: 3,
-                    isStrokeCapRound: true,
-                    dotData: FlDotData(
-                      show: true,
-                      getDotPainter: (spot, percent, barData, index) {
-                        return FlDotCirclePainter(
-                          radius: 4,
-                          color: DarkTheme.statusWarning,
-                          strokeWidth: 2,
-                          strokeColor: DarkTheme.deepForestBlack,
-                        );
-                      },
-                    ),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          DarkTheme.statusWarning.withValues(alpha: 0.25),
-                          DarkTheme.statusWarning.withValues(alpha: 0.0),
                         ],
                       ),
-                    ),
-                  ),
-                ],
-                // Warning line at 2kg
-                extraLinesData: ExtraLinesData(
-                  horizontalLines: [
-                    HorizontalLine(
-                      y: 2,
-                      color: DarkTheme.statusDanger,
-                      strokeWidth: 2,
-                      dashArray: [8, 4],
-                      label: HorizontalLineLabel(
-                        show: true,
-                        alignment: Alignment.topRight,
-                        padding: const EdgeInsets.only(right: 5, bottom: 5),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: DarkTheme.statusDanger,
+                      barTouchData: BarTouchData(
+                        touchTooltipData: BarTouchTooltipData(
+                          tooltipBgColor: DarkTheme.deepForestBlack.withValues(
+                            alpha: 0.9,
+                          ),
+                          tooltipRoundedRadius: 10,
+                          getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                            return BarTooltipItem(
+                              '${rod.toY.toStringAsFixed(1)} ppm',
+                              const TextStyle(
+                                color: DarkTheme.paleGreen,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            );
+                          },
                         ),
-                        labelResolver: (_) => 'Batas Rendah',
                       ),
                     ),
-                  ],
-                ),
-                lineTouchData: LineTouchData(
-                  touchTooltipData: LineTouchTooltipData(
-                    tooltipBgColor: DarkTheme.deepForestBlack.withValues(
-                      alpha: 0.9,
-                    ),
-                    tooltipRoundedRadius: 10,
-                    tooltipPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    getTooltipItems: (touchedSpots) {
-                      return touchedSpots.map((spot) {
-                        return LineTooltipItem(
-                          '${spot.y.toStringAsFixed(1)} kg',
-                          const TextStyle(
-                            color: DarkTheme.statusWarning,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
-                        );
-                      }).toList();
-                    },
                   ),
-                ),
-              ),
-            ),
           ),
         ],
       ),
@@ -1274,6 +1087,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _buildWaterChart() {
+    final data = _getWaterBarData();
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: DarkTheme.cardDecoration,
@@ -1286,189 +1100,200 @@ class _HistoryScreenState extends State<HistoryScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha: 0.15),
+                  color: const Color(0xFF64B5F6).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
                   Icons.water_drop_rounded,
-                  color: Colors.lightBlueAccent,
+                  color: Color(0xFF64B5F6),
                   size: 22,
                 ),
               ),
               const SizedBox(width: 12),
-              Column(
+              const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('Status Air', style: DarkTheme.controlTitle),
-                  Text('Level Air Minum', style: DarkTheme.controlSubtitle),
+                children: [
+                  Text('Grafik Level Air', style: DarkTheme.controlTitle),
+                  Text('Status Air Minum', style: DarkTheme.controlSubtitle),
                 ],
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
 
           // Legend
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildLegendItem('Penuh', DarkTheme.neonGreen),
+              _buildLegendItem(DarkTheme.neonGreen, 'Penuh'),
               const SizedBox(width: 16),
-              _buildLegendItem('Normal', DarkTheme.paleGreen),
+              _buildLegendItem(DarkTheme.paleGreen, 'Normal'),
               const SizedBox(width: 16),
-              _buildLegendItem('Rendah', DarkTheme.statusWarning),
+              _buildLegendItem(DarkTheme.statusWarning, 'Rendah'),
+              const SizedBox(width: 16),
+              _buildLegendItem(DarkTheme.statusDanger, 'Habis'),
             ],
           ),
           const SizedBox(height: 16),
 
           // Bar Chart
           SizedBox(
-            height: 160,
-            child: BarChart(
-              BarChartData(
-                maxY: 4,
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: 1,
-                  getDrawingHorizontalLine: (value) {
-                    return FlLine(
-                      color: DarkTheme.neonGreen.withValues(alpha: 0.1),
-                      strokeWidth: 1,
-                    );
-                  },
-                ),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 50,
-                      interval: 1,
-                      getTitlesWidget: (value, meta) {
-                        String label = '';
-                        switch (value.toInt()) {
-                          case 3:
-                            label = 'Penuh';
-                            break;
-                          case 2:
-                            label = 'Normal';
-                            break;
-                          case 1:
-                            label = 'Rendah';
-                            break;
-                          case 0:
-                            label = 'Habis';
-                            break;
-                        }
-                        return Text(
-                          label,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: DarkTheme.paleGreen,
+            height: 180,
+            child: data.isEmpty
+                ? Center(
+                    child: Text(
+                      'Tidak ada data',
+                      style: DarkTheme.controlSubtitle.copyWith(
+                        color: DarkTheme.paleGreen.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  )
+                : BarChart(
+                    BarChartData(
+                      maxY: 4,
+                      barGroups: data,
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: 1,
+                        getDrawingHorizontalLine: (value) {
+                          return FlLine(
+                            color: DarkTheme.neonGreen.withValues(alpha: 0.1),
+                            strokeWidth: 1,
+                          );
+                        },
+                      ),
+                      titlesData: FlTitlesData(
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 50,
+                            interval: 1,
+                            getTitlesWidget: (value, meta) {
+                              String label = '';
+                              switch (value.toInt()) {
+                                case 3:
+                                  label = 'Penuh';
+                                  break;
+                                case 2:
+                                  label = 'Normal';
+                                  break;
+                                case 1:
+                                  label = 'Rendah';
+                                  break;
+                                case 0:
+                                  label = 'Habis';
+                                  break;
+                              }
+                              return Text(
+                                label,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: DarkTheme.paleGreen,
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      getTitlesWidget: (value, meta) {
-                        String label = '';
-                        if (_selectedFilterIndex == 0) {
-                          final times = [
-                            '00:00',
-                            '04:00',
-                            '08:00',
-                            '12:00',
-                            '16:00',
-                            '20:00',
-                          ];
-                          if (value.toInt() < times.length) {
-                            label = times[value.toInt()];
-                          }
-                        } else if (_selectedFilterIndex == 1) {
-                          final days = [
-                            'Sen',
-                            'Sel',
-                            'Rab',
-                            'Kam',
-                            'Jum',
-                            'Sab',
-                            'Min',
-                          ];
-                          if (value.toInt() < days.length) {
-                            label = days[value.toInt()];
-                          }
-                        } else {
-                          final weeks = ['M1', 'M2', 'M3', 'M4'];
-                          if (value.toInt() < weeks.length) {
-                            label = weeks[value.toInt()];
-                          }
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            label,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: DarkTheme.paleGreen,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                barGroups: _waterData,
-                barTouchData: BarTouchData(
-                  touchTooltipData: BarTouchTooltipData(
-                    tooltipBgColor: DarkTheme.deepForestBlack.withValues(
-                      alpha: 0.9,
-                    ),
-                    tooltipRoundedRadius: 10,
-                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                      String status = '';
-                      switch (rod.toY.toInt()) {
-                        case 3:
-                          status = 'Penuh';
-                          break;
-                        case 2:
-                          status = 'Normal';
-                          break;
-                        case 1:
-                          status = 'Rendah';
-                          break;
-                        default:
-                          status = 'Habis';
-                      }
-                      return BarTooltipItem(
-                        status,
-                        TextStyle(
-                          color: rod.color,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
                         ),
-                      );
-                    },
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 30,
+                            getTitlesWidget: (value, meta) {
+                              String label = '';
+                              if (_selectedFilterIndex == 0) {
+                                final hours = [
+                                  '00:00',
+                                  '04:00',
+                                  '08:00',
+                                  '12:00',
+                                  '16:00',
+                                  '20:00',
+                                ];
+                                if (value.toInt() < hours.length) {
+                                  label = hours[value.toInt()];
+                                }
+                              } else if (_selectedFilterIndex == 1) {
+                                final days = [
+                                  'Sen',
+                                  'Sel',
+                                  'Rab',
+                                  'Kam',
+                                  'Jum',
+                                  'Sab',
+                                  'Min',
+                                ];
+                                if (value.toInt() < days.length) {
+                                  label = days[value.toInt()];
+                                }
+                              } else {
+                                final weeks = ['M1', 'M2', 'M3', 'M4'];
+                                if (value.toInt() < weeks.length) {
+                                  label = weeks[value.toInt()];
+                                }
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  label,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: DarkTheme.paleGreen,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                      ),
+                      borderData: FlBorderData(show: false),
+                      barTouchData: BarTouchData(
+                        touchTooltipData: BarTouchTooltipData(
+                          tooltipBgColor: DarkTheme.deepForestBlack.withValues(
+                            alpha: 0.9,
+                          ),
+                          tooltipRoundedRadius: 10,
+                          getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                            String levelText = '';
+                            switch (rod.toY.toInt()) {
+                              case 3:
+                                levelText = 'Penuh';
+                                break;
+                              case 2:
+                                levelText = 'Normal';
+                                break;
+                              case 1:
+                                levelText = 'Rendah';
+                                break;
+                              default:
+                                levelText = 'Habis';
+                            }
+                            return BarTooltipItem(
+                              levelText,
+                              TextStyle(
+                                color: rod.color,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLegendItem(String label, Color color) {
+  Widget _buildLegendItem(Color color, String label) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1480,10 +1305,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
             borderRadius: BorderRadius.circular(3),
           ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 4),
         Text(
           label,
-          style: const TextStyle(fontSize: 11, color: DarkTheme.paleGreen),
+          style: const TextStyle(fontSize: 10, color: DarkTheme.paleGreen),
         ),
       ],
     );
@@ -1493,72 +1318,51 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Rangkuman', style: DarkTheme.sectionTitle),
-        const SizedBox(height: 16),
+        const Text('Ringkasan', style: DarkTheme.sectionTitle),
+        const SizedBox(height: 12),
         Row(
           children: [
-            // Average Temperature Card
             Expanded(
               child: _buildSummaryCard(
                 icon: Icons.thermostat_rounded,
                 label: 'Rata-rata Suhu',
                 value: '${_averageTemperature.toStringAsFixed(1)}°C',
-                iconColor: DarkTheme.neonGreen,
+                color: DarkTheme.neonGreen,
               ),
             ),
             const SizedBox(width: 12),
-            // Peak Ammonia Card
             Expanded(
               child: _buildSummaryCard(
-                icon: Icons.show_chart_rounded,
+                icon: Icons.opacity,
+                label: 'Rata-rata Kelembapan',
+                value: '${_averageHumidity.toStringAsFixed(0)}%',
+                color: const Color(0xFF64B5F6),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildSummaryCard(
+                icon: Icons.cloud_outlined,
                 label: 'Puncak Amonia',
                 value: '${_peakAmmonia.toStringAsFixed(0)} ppm',
-                iconColor: _peakAmmonia > 20
+                color: _peakAmmonia > 20
                     ? DarkTheme.statusWarning
                     : DarkTheme.paleGreen,
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            // Average Feed Card
+            const SizedBox(width: 12),
             Expanded(
               child: _buildSummaryCard(
                 icon: Icons.grain_rounded,
                 label: 'Rata-rata Pakan',
-                value: '${_averageFeed.toStringAsFixed(1)} kg',
-                iconColor: DarkTheme.statusWarning,
+                value: '${_averageFeed.toStringAsFixed(0)} g',
+                color: DarkTheme.statusWarning,
               ),
             ),
-            const SizedBox(width: 12),
-            // Water Status Card
-            Expanded(
-              child: _buildSummaryCard(
-                icon: Icons.water_drop_rounded,
-                label: 'Status Air',
-                value: 'Normal',
-                iconColor: Colors.lightBlueAccent,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // Third Row: Humidity
-        Row(
-          children: [
-            const Spacer(),
-            Expanded(
-              flex: 2,
-              child: _buildSummaryCard(
-                icon: Icons.opacity,
-                label: 'Rata-rata Kelembapan',
-                value: '${_averageHumidity.toStringAsFixed(1)}%',
-                iconColor: DarkTheme.neonGreen,
-              ),
-            ),
-            const Spacer(),
           ],
         ),
       ],
@@ -1569,7 +1373,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     required IconData icon,
     required String label,
     required String value,
-    required Color iconColor,
+    required Color color,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1577,21 +1381,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Icon
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: iconColor, size: 24),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const Spacer(),
+            ],
           ),
-          const SizedBox(height: 14),
-          // Label
-          Text(label, style: DarkTheme.sensorLabel),
-          const SizedBox(height: 6),
-          // Value
-          Text(value, style: DarkTheme.sensorValue.copyWith(fontSize: 26)),
+          const SizedBox(height: 12),
+          Text(label, style: DarkTheme.controlSubtitle),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: DarkTheme.textPrimary,
+            ),
+          ),
         ],
       ),
     );

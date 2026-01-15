@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:kandangku/models/sensor_model.dart';
 
@@ -8,6 +9,7 @@ class FirebaseService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   FirebaseService() {
     _firestore.settings = const Settings(
@@ -19,6 +21,103 @@ class FirebaseService {
   // Collection and Doc references
   static const String _collectionName = 'coops';
   static const String _docId = 'kandang_01';
+
+  // ============ AUTH METHODS ============
+
+  /// Stream of auth state changes
+  Stream<User?> get authStateChanges => _auth.authStateChanges();
+
+  /// Get current user
+  User? get currentUser => _auth.currentUser;
+
+  /// Sign in with email and password
+  /// Returns null on success, error message string on failure
+  Future<String?> signIn(String email, String password) async {
+    try {
+      await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+      return null; // Success
+    } on FirebaseAuthException catch (e) {
+      // Return user-friendly error messages in Bahasa Indonesia
+      switch (e.code) {
+        case 'user-not-found':
+          return 'Email tidak terdaftar';
+        case 'wrong-password':
+          return 'Password salah';
+        case 'invalid-email':
+          return 'Format email tidak valid';
+        case 'user-disabled':
+          return 'Akun telah dinonaktifkan';
+        case 'too-many-requests':
+          return 'Terlalu banyak percobaan. Coba lagi nanti';
+        case 'invalid-credential':
+          return 'Email atau password salah';
+        default:
+          return e.message ?? 'Terjadi kesalahan. Coba lagi';
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Sign in error: $e');
+      }
+      return 'Terjadi kesalahan. Coba lagi';
+    }
+  }
+
+  /// Sign out current user
+  Future<void> signOut() async {
+    await _auth.signOut();
+  }
+
+  /// Send password reset email
+  /// Returns null on success, error message string on failure
+  Future<String?> sendPasswordResetEmail(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email.trim());
+      return null; // Success
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'user-not-found':
+          return 'Email tidak terdaftar';
+        case 'invalid-email':
+          return 'Format email tidak valid';
+        default:
+          return e.message ?? 'Terjadi kesalahan. Coba lagi';
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Password reset error: $e');
+      }
+      return 'Terjadi kesalahan. Coba lagi';
+    }
+  }
+
+  // ============ CONFIG METHODS ============
+
+  /// Stream of threshold configuration
+  Stream<Map<String, dynamic>> getConfigStream() {
+    return _firestore.collection('config').doc('thresholds').snapshots().map((
+      snapshot,
+    ) {
+      if (snapshot.exists && snapshot.data() != null) {
+        return snapshot.data()!;
+      } else {
+        // Return defaults if document doesn't exist
+        return {'max_temperature': 30.0, 'max_ammonia': 20.0};
+      }
+    });
+  }
+
+  /// Update threshold configuration
+  Future<void> updateThresholds(double maxTemp, double maxAmmonia) async {
+    await _firestore.collection('config').doc('thresholds').set({
+      'max_temperature': maxTemp,
+      'max_ammonia': maxAmmonia,
+    }, SetOptions(merge: true));
+  }
+
+  // ============ SENSOR DATA METHODS ============
 
   // Stream of sensor data
   Stream<SensorModel> getSensorStream() {
@@ -114,7 +213,7 @@ class FirebaseService {
     });
   }
 
-  // Fetch History for Chart
+  // Fetch History for Chart (legacy - limited to 20)
   Future<List<Map<String, dynamic>>> getTelemetryHistory() async {
     try {
       QuerySnapshot snapshot = await _firestore
@@ -129,6 +228,39 @@ class FirebaseService {
     } catch (e) {
       if (kDebugMode) {
         print('Error fetching history: $e');
+      }
+      return [];
+    }
+  }
+
+  /// Fetch telemetry history for a given time range
+  /// [hours] - Number of hours to look back (24, 168 for 7 days, 720 for 30 days)
+  /// Returns data ordered chronologically (oldest first) for chart plotting
+  Future<List<Map<String, dynamic>>> getTelemetryHistoryForRange(
+    int hours,
+  ) async {
+    try {
+      final cutoff = DateTime.now().subtract(Duration(hours: hours));
+      final cutoffTimestamp = Timestamp.fromDate(cutoff);
+
+      QuerySnapshot snapshot = await _firestore
+          .collection('telemetry_history')
+          .where('last_update', isGreaterThanOrEqualTo: cutoffTimestamp)
+          .orderBy('last_update', descending: false) // Oldest first for charts
+          .limit(200) // Reasonable limit for chart performance
+          .get();
+
+      return snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        // Ensure timestamp is included for x-axis calculations
+        return {
+          ...data,
+          'timestamp': (data['last_update'] as Timestamp?)?.toDate(),
+        };
+      }).toList();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching history for range ($hours hours): $e');
       }
       return [];
     }

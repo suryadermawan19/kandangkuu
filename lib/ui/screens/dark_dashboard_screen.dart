@@ -853,30 +853,64 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
 
         const SizedBox(height: 16),
 
+        // UX Fix #7: Offline warning banner
+        if (sensorData.isStale)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: DarkTheme.statusWarning.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: DarkTheme.statusWarning.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.wifi_off_rounded,
+                  size: 18,
+                  color: DarkTheme.statusWarning,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Kontrol dinonaktifkan - Perangkat offline',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: DarkTheme.statusWarning,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         // Actuator Grid (Fan & Heater)
         Row(
           children: [
-            // Fan Button
+            // Fan Button - UX Fix #7: Also disable when offline
             Expanded(
               child: _buildActuatorButton(
                 icon: Icons.mode_fan_off_rounded,
                 activeIcon: Icons.wind_power_rounded,
                 label: 'Kipas',
                 isActive: sensorData.isFanOn,
-                isDisabled: sensorData.isAutoMode,
+                isDisabled: sensorData.isAutoMode || sensorData.isStale,
                 isLoading: _isFanLoading,
                 onTap: () => _handleFanToggle(sensorData, service),
               ),
             ),
             const SizedBox(width: 12),
-            // Heater Button
+            // Heater Button - UX Fix #7: Also disable when offline
             Expanded(
               child: _buildActuatorButton(
                 icon: Icons.thermostat_auto_outlined,
                 activeIcon: Icons.local_fire_department_rounded,
                 label: 'Pemanas',
                 isActive: sensorData.isHeaterOn,
-                isDisabled: sensorData.isAutoMode,
+                isDisabled: sensorData.isAutoMode || sensorData.isStale,
                 isLoading: _isHeaterLoading,
                 onTap: () => _handleHeaterToggle(sensorData, service),
               ),
