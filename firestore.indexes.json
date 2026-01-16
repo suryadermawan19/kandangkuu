@@ -1,25 +1,4 @@
 {
-  "indexes": [
-    {
-      "collectionGroup": "telemetry_history",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "last_update",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "telemetry_history",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "last_update",
-          "order": "DESCENDING"
-        }
-      ]
-    }
-  ],
+  "indexes": [],
   "fieldOverrides": []
 }
