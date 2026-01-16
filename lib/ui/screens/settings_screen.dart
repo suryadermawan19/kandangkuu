@@ -17,6 +17,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Local state for smooth slider interaction
   double _maxTemperature = 30.0;
   double _maxAmmonia = 20.0;
+  double _minFeedThreshold = 500.0; // Feed threshold in grams
   bool _hasInitialized = false;
 
   // Notification Settings
@@ -49,6 +50,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _maxTemperature =
                 (config['max_temperature'] as num?)?.toDouble() ?? 30.0;
             _maxAmmonia = (config['max_ammonia'] as num?)?.toDouble() ?? 20.0;
+            _minFeedThreshold =
+                (config['min_feed_threshold'] as num?)?.toDouble() ?? 500.0;
             _hasInitialized = true;
           }
 
@@ -256,6 +259,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChangeEnd: (val) => _saveThresholds(firebaseService),
           ),
 
+          const SizedBox(height: 20),
+          Divider(color: DarkTheme.cardBorder, height: 1),
+          const SizedBox(height: 20),
+
+          // Feed Threshold (for servo automation) - in grams
+          _buildThresholdItem(
+            icon: Icons.grain_rounded,
+            title: 'Ambang Batas Minimum Pakan',
+            description:
+                'Servo pakan aktif otomatis jika berat pakan di bawah batas ini',
+            value: _minFeedThreshold,
+            unit: ' gram',
+            min: 0.0,
+            max: 1000.0,
+            divisions: 100,
+            onChanged: (val) => setState(() => _minFeedThreshold = val),
+            onChangeEnd: (val) => _saveFeedThreshold(firebaseService),
+          ),
+
           // Sync indicator
           if (_isSaving)
             Padding(
@@ -300,6 +322,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         _showSnackbar('Gagal menyimpan pengaturan');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  Future<void> _saveFeedThreshold(FirebaseService firebaseService) async {
+    setState(() => _isSaving = true);
+
+    try {
+      // Save directly in grams
+      await firebaseService.updateFeedThreshold(_minFeedThreshold);
+      if (mounted) {
+        _showSnackbar('Ambang batas pakan tersimpan');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackbar('Gagal menyimpan ambang batas pakan');
       }
     } finally {
       if (mounted) {

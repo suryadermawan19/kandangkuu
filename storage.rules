@@ -1,12 +1,19 @@
 rules_version = '2';
 
-// Craft rules based on data in your Firestore database
-// allow write: if firestore.get(
-//    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
 service firebase.storage {
   match /b/{bucket}/o {
+    
+    // Vision images: authenticated users can read
+    // Writes are done via ESP32 or Cloud Functions (not client)
+    match /vision/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if false; // Only backend/device writes
+    }
+    
+    // General protection for other paths
     match /{allPaths=**} {
-      allow read, write: if false;
+      allow read: if request.auth != null;
+      allow write: if false;
     }
   }
 }

@@ -54,52 +54,101 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
       listen: false,
     );
 
-    return Scaffold(
-      backgroundColor: DarkTheme.backgroundPrimary,
-      appBar: _buildHeader(sensorData),
-      body: Column(
-        children: [
-          // UX Fix #1: Offline Banner
-          if (sensorData.isStale) _buildOfflineBanner(sensorData),
+    return StreamProvider<String>(
+      create: (_) => firebaseService.getUserRoleStream(),
+      initialData: 'viewer', // Default to safer viewer role
+      child: Consumer<String>(
+        builder: (context, userRole, child) {
+          final isAdmin = userRole == 'admin';
 
-          Expanded(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Metric Grid
-                  _buildMetricGrid(sensorData),
-                  const SizedBox(height: 20),
+          return Scaffold(
+            backgroundColor: DarkTheme.backgroundPrimary,
+            appBar: _buildHeader(sensorData, isAdmin),
+            body: Column(
+              children: [
+                // UX Fix #1: Offline Banner (Cache or Stale)
+                if (sensorData.isStale || sensorData.isFromCache)
+                  _buildOfflineBanner(sensorData),
 
-                  // Vision Card (Camera Feed)
-                  _buildVisionCard(sensorData),
-                  const SizedBox(height: 24),
+                // Role Banner (Viewer Mode)
+                if (!isAdmin) _buildViewerBanner(),
 
-                  // Control Section
-                  _buildControlSection(sensorData, firebaseService),
-                  const SizedBox(height: 100), // Space for bottom nav
-                ],
-              ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Servo Status Banner (Active Dispensing)
+                        _buildServoStatusBanner(sensorData),
+
+                        // Metric Grid
+                        _buildMetricGrid(sensorData),
+                        const SizedBox(height: 20),
+
+                        // Vision Card (Camera Feed)
+                        _buildVisionCard(sensorData),
+                        const SizedBox(height: 24),
+
+                        // Logistik & Pakan Section (Manual Servo Controls)
+                        _buildLogistikSection(
+                          sensorData,
+                          firebaseService,
+                          isAdmin,
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Control Section
+                        _buildControlSection(
+                          sensorData,
+                          firebaseService,
+                          isAdmin,
+                        ),
+                        const SizedBox(height: 100), // Space for bottom nav
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+            bottomNavigationBar: _buildBottomNav(),
+          );
+        },
       ),
-      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
   // ============ UX FIX #1: OFFLINE BANNER ============
   Widget _buildOfflineBanner(SensorModel sensorData) {
+    // Determine the type of offline state
+    final bool isAppOffline = sensorData.isFromCache;
+    // If not using cache but data is stale, then device is offline
+    // final bool isDeviceOffline = !isAppOffline && sensorData.isStale; // Unused, removing to fix lint
+
+    final Color bannerColor = isAppOffline
+        ? const Color(0xFFFFA000) // Amber for App Offline
+        : DarkTheme.statusDanger; // Red for Device Offline
+
+    final String title = isAppOffline
+        ? 'Aplikasi Offline'
+        : 'Perangkat Offline';
+
+    final String message = isAppOffline
+        ? 'Menampilkan data terakhir. Kontrol dinonaktifkan.'
+        : 'Terputus sejak ${sensorData.timeSinceUpdate}';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: DarkTheme.statusDanger.withValues(alpha: 0.15),
+        color: bannerColor.withValues(alpha: 0.15),
         border: Border(
           bottom: BorderSide(
-            color: DarkTheme.statusDanger.withValues(alpha: 0.3),
+            color: bannerColor.withValues(alpha: 0.3),
             width: 1,
           ),
         ),
@@ -111,8 +160,8 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
             animation: _pulseController,
             builder: (context, child) {
               return Icon(
-                Icons.wifi_off_rounded,
-                color: DarkTheme.statusDanger.withValues(
+                isAppOffline ? Icons.cloud_off_rounded : Icons.wifi_off_rounded,
+                color: bannerColor.withValues(
                   alpha: 0.6 + (_pulseController.value * 0.4),
                 ),
                 size: 22,
@@ -124,19 +173,19 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Koneksi Terputus',
+                Text(
+                  title,
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: DarkTheme.statusDanger,
+                    color: bannerColor,
                   ),
                 ),
                 Text(
-                  'Data terakhir: ${sensorData.timeSinceUpdate}',
+                  message,
                   style: TextStyle(
                     fontSize: 12,
-                    color: DarkTheme.statusDanger.withValues(alpha: 0.8),
+                    color: bannerColor.withValues(alpha: 0.8),
                   ),
                 ),
               ],
@@ -148,7 +197,11 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
               // Could trigger a manual refresh here
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: const Text('Mencoba menghubungkan ulang...'),
+                  content: Text(
+                    isAppOffline
+                        ? 'Memeriksa koneksi internet...'
+                        : 'Mencoba panggil ulang perangkat...',
+                  ),
                   backgroundColor: DarkTheme.cardBackground,
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
@@ -160,7 +213,7 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: const Text('Coba Lagi'),
             style: TextButton.styleFrom(
-              foregroundColor: DarkTheme.statusDanger,
+              foregroundColor: bannerColor,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             ),
           ),
@@ -169,7 +222,373 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
     );
   }
 
-  PreferredSizeWidget _buildHeader(SensorModel sensorData) {
+  // ============ ROLE BANNER ============
+  Widget _buildViewerBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.blueGrey.withValues(alpha: 0.2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: const [
+          Icon(Icons.visibility_rounded, size: 16, color: Colors.blueGrey),
+          SizedBox(width: 8),
+          Text(
+            'Mode Penonton (Hanya Lihat)',
+            style: TextStyle(
+              color: Colors.blueGrey,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============ SERVO STATUS BANNER ============
+  Widget _buildServoStatusBanner(SensorModel sensorData) {
+    final isFillingFeed = sensorData.servoPakanTrigger;
+    final isFillingWater = sensorData.servoAirTrigger;
+
+    if (!isFillingFeed && !isFillingWater) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            DarkTheme.neonGreen.withValues(alpha: 0.15),
+            DarkTheme.neonGreen.withValues(alpha: 0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: DarkTheme.neonGreen.withValues(alpha: 0.4),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          // Feed dispensing indicator
+          if (isFillingFeed)
+            _buildServoIndicatorRow(
+              icon: Icons.grain_rounded,
+              text: 'Mengisi Pakan...',
+            ),
+
+          // Separator if both are active
+          if (isFillingFeed && isFillingWater) const SizedBox(height: 10),
+
+          // Water dispensing indicator
+          if (isFillingWater)
+            _buildServoIndicatorRow(
+              icon: Icons.water_drop_rounded,
+              text: 'Mengisi Air...',
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildServoIndicatorRow({
+    required IconData icon,
+    required String text,
+  }) {
+    return Row(
+      children: [
+        // Animated spinning icon
+        AnimatedBuilder(
+          animation: _pulseController,
+          builder: (context, child) {
+            return Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: DarkTheme.neonGreen.withValues(
+                  alpha: 0.15 + (_pulseController.value * 0.1),
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: DarkTheme.neonGreen, size: 22),
+            );
+          },
+        ),
+        const SizedBox(width: 14),
+        // Status text
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: DarkTheme.neonGreen,
+            ),
+          ),
+        ),
+        // Loading spinner
+        SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              DarkTheme.neonGreen.withValues(alpha: 0.8),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============ LOGISTIK & PAKAN SECTION (Manual Servo Controls) ============
+  Widget _buildLogistikSection(
+    SensorModel sensorData,
+    FirebaseService service,
+    bool isAdmin,
+  ) {
+    final isAutoMode = sensorData.isAutoMode;
+    final isFeedActive = sensorData.servoPakanTrigger;
+    final isWaterActive = sensorData.servoAirTrigger;
+    // Disable controls if stale OR using cached data (app offline)
+    final isControlsDisabled = sensorData.isStale || sensorData.isFromCache;
+
+    // Show low feed warning when servo is triggered or feed weight is critically low
+    final bool isLowFeed = isFeedActive || sensorData.feedWeight < 100;
+    final bool isLowWater = isWaterActive || sensorData.waterLevel == 'Habis';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section Title
+        const Text('Logistik & Pakan', style: DarkTheme.sectionTitle),
+        const SizedBox(height: 16),
+
+        // Low feed/water warning banner
+        if ((isLowFeed || isLowWater) && !isControlsDisabled)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: DarkTheme.statusDanger.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: DarkTheme.statusDanger.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 20,
+                  color: DarkTheme.statusDanger,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (isLowFeed)
+                        Text(
+                          'Pakan hampir habis (${sensorData.feedWeight.toStringAsFixed(0)}g)',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: DarkTheme.statusDanger,
+                          ),
+                        ),
+                      if (isLowWater)
+                        Text(
+                          'Air habis - perlu diisi ulang',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: DarkTheme.statusDanger,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // Disabled warning when in auto mode
+        if (isAutoMode)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: DarkTheme.statusWarning.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: DarkTheme.statusWarning.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: DarkTheme.statusWarning,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Matikan Mode Otomatis untuk kontrol manual',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: DarkTheme.statusWarning,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // Manual Control Buttons
+        Row(
+          children: [
+            // Isi Pakan Button
+            Expanded(
+              child: _buildManualServoButton(
+                icon: Icons.restaurant_rounded,
+                label: 'Isi Pakan',
+                isActive: isFeedActive,
+                isDisabled: isAutoMode || isControlsDisabled || !isAdmin,
+                onTap: () => _handleManualFeed(service),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Isi Air Button
+            Expanded(
+              child: _buildManualServoButton(
+                icon: Icons.opacity_rounded,
+                label: 'Isi Air',
+                isActive: isWaterActive,
+                isDisabled: isAutoMode || isControlsDisabled || !isAdmin,
+                onTap: () => _handleManualWater(service),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildManualServoButton({
+    required IconData icon,
+    required String label,
+    required bool isActive,
+    required bool isDisabled,
+    required VoidCallback onTap,
+  }) {
+    final double opacity = isDisabled ? 0.5 : 1.0;
+    final bool showLoading = isActive && !isDisabled;
+
+    return GestureDetector(
+      onTap: isDisabled || isActive ? null : onTap,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 200),
+        opacity: opacity,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          decoration: BoxDecoration(
+            color: isActive && !isDisabled
+                ? DarkTheme.neonGreen.withValues(alpha: 0.15)
+                : DarkTheme.cardBackground,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isActive && !isDisabled
+                  ? DarkTheme.neonGreen.withValues(alpha: 0.5)
+                  : DarkTheme.cardBorder,
+              width: isActive && !isDisabled ? 1.5 : 1,
+            ),
+          ),
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  // Show spinner when active, otherwise show icon
+                  if (showLoading)
+                    SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          DarkTheme.neonGreen,
+                        ),
+                      ),
+                    )
+                  else
+                    Icon(
+                      icon,
+                      color: isActive && !isDisabled
+                          ? DarkTheme.neonGreen
+                          : DarkTheme.paleGreen,
+                      size: 36,
+                    ),
+                  const SizedBox(height: 12),
+                  Text(
+                    label,
+                    style: DarkTheme.controlTitle.copyWith(
+                      color: isActive && !isDisabled
+                          ? DarkTheme.textPrimary
+                          : DarkTheme.paleGreen,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    showLoading ? 'Mengisi...' : 'Tekan untuk isi',
+                    style: DarkTheme.controlSubtitle.copyWith(
+                      color: showLoading
+                          ? DarkTheme.neonGreen
+                          : DarkTheme.textDisabled,
+                    ),
+                  ),
+                ],
+              ),
+              // Lock icon when disabled
+              if (isDisabled)
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Icon(
+                    Icons.lock_rounded,
+                    size: 18,
+                    color: DarkTheme.paleGreen.withValues(alpha: 0.7),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleManualFeed(FirebaseService service) async {
+    final success = await service.triggerManualFeed();
+    if (success) {
+      _showSuccessSnackbar('Mengisi pakan...');
+    } else {
+      _showErrorSnackbar('Gagal mengaktifkan servo pakan');
+    }
+  }
+
+  Future<void> _handleManualWater(FirebaseService service) async {
+    final success = await service.triggerManualWater();
+    if (success) {
+      _showSuccessSnackbar('Mengisi air...');
+    } else {
+      _showErrorSnackbar('Gagal mengaktifkan servo air');
+    }
+  }
+
+  PreferredSizeWidget _buildHeader(SensorModel sensorData, bool isAdmin) {
     // Determine connection status color
     final bool isOnline = sensorData.isOnline;
     final Color statusColor = isOnline
@@ -235,6 +654,21 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
       actions: [
         Stack(
           children: [
+            if (isAdmin) // Only show settings to admin
+              IconButton(
+                icon: const Icon(
+                  Icons.settings_rounded,
+                  color: DarkTheme.textPrimary,
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SettingsScreen(),
+                    ),
+                  );
+                },
+              ),
             IconButton(
               icon: const Icon(
                 Icons.notifications_outlined,
@@ -768,7 +1202,11 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
     );
   }
 
-  Widget _buildControlSection(SensorModel sensorData, FirebaseService service) {
+  Widget _buildControlSection(
+    SensorModel sensorData,
+    FirebaseService service,
+    bool isAdmin,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -836,7 +1274,12 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                       scale: 1.1,
                       child: Switch(
                         value: sensorData.isAutoMode,
-                        onChanged: (val) => _handleAutoModeToggle(val, service),
+                        onChanged:
+                            (sensorData.isStale ||
+                                sensorData.isFromCache ||
+                                !isAdmin)
+                            ? null
+                            : (val) => _handleAutoModeToggle(val, service),
                         activeColor: DarkTheme.neonGreen,
                         activeTrackColor: DarkTheme.neonGreen.withValues(
                           alpha: 0.4,
@@ -853,8 +1296,8 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
 
         const SizedBox(height: 16),
 
-        // UX Fix #7: Offline warning banner
-        if (sensorData.isStale)
+        // UX Fix #7: Offline warning banner (Cache or Stale)
+        if (sensorData.isStale || sensorData.isFromCache)
           Container(
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -868,14 +1311,18 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
             child: Row(
               children: [
                 Icon(
-                  Icons.wifi_off_rounded,
+                  sensorData.isFromCache
+                      ? Icons.cloud_off_rounded
+                      : Icons.wifi_off_rounded,
                   size: 18,
                   color: DarkTheme.statusWarning,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Kontrol dinonaktifkan - Perangkat offline',
+                    sensorData.isFromCache
+                        ? 'Kontrol dinonaktifkan - Aplikasi offline'
+                        : 'Kontrol dinonaktifkan - Perangkat offline',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
@@ -897,7 +1344,10 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                 activeIcon: Icons.wind_power_rounded,
                 label: 'Kipas',
                 isActive: sensorData.isFanOn,
-                isDisabled: sensorData.isAutoMode || sensorData.isStale,
+                isDisabled:
+                    sensorData.isAutoMode ||
+                    sensorData.isStale ||
+                    sensorData.isFromCache,
                 isLoading: _isFanLoading,
                 onTap: () => _handleFanToggle(sensorData, service),
               ),
@@ -910,7 +1360,10 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
                 activeIcon: Icons.local_fire_department_rounded,
                 label: 'Pemanas',
                 isActive: sensorData.isHeaterOn,
-                isDisabled: sensorData.isAutoMode || sensorData.isStale,
+                isDisabled:
+                    sensorData.isAutoMode ||
+                    sensorData.isStale ||
+                    sensorData.isFromCache,
                 isLoading: _isHeaterLoading,
                 onTap: () => _handleHeaterToggle(sensorData, service),
               ),
@@ -921,22 +1374,24 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
     );
   }
 
-  // UX Fix #2: Actuator handlers with loading states
+  // UX Fix #2: Actuator handlers with loading states and rollback
   Future<void> _handleAutoModeToggle(
     bool value,
     FirebaseService service,
   ) async {
     setState(() => _isAutoModeLoading = true);
-    try {
-      await service.updateActuatorState(isAutoMode: value);
+
+    final success = await service.updateActuatorState(isAutoMode: value);
+
+    if (success) {
       _showSuccessSnackbar(
         value ? 'Mode Otomatis diaktifkan' : 'Mode Manual diaktifkan',
       );
-    } catch (e) {
+    } else {
       _showErrorSnackbar('Gagal mengubah mode. Coba lagi.');
-    } finally {
-      setState(() => _isAutoModeLoading = false);
     }
+
+    if (mounted) setState(() => _isAutoModeLoading = false);
   }
 
   Future<void> _handleFanToggle(
@@ -946,16 +1401,17 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
     if (sensorData.isAutoMode) return;
 
     setState(() => _isFanLoading = true);
-    try {
-      await service.updateActuatorState(isFanOn: !sensorData.isFanOn);
-      _showSuccessSnackbar(
-        sensorData.isFanOn ? 'Kipas dimatikan' : 'Kipas dinyalakan',
-      );
-    } catch (e) {
+
+    final newValue = !sensorData.isFanOn;
+    final success = await service.updateActuatorState(isFanOn: newValue);
+
+    if (success) {
+      _showSuccessSnackbar(newValue ? 'Kipas dinyalakan' : 'Kipas dimatikan');
+    } else {
       _showErrorSnackbar('Gagal mengontrol kipas. Coba lagi.');
-    } finally {
-      setState(() => _isFanLoading = false);
     }
+
+    if (mounted) setState(() => _isFanLoading = false);
   }
 
   Future<void> _handleHeaterToggle(
@@ -965,16 +1421,19 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
     if (sensorData.isAutoMode) return;
 
     setState(() => _isHeaterLoading = true);
-    try {
-      await service.updateActuatorState(isHeaterOn: !sensorData.isHeaterOn);
+
+    final newValue = !sensorData.isHeaterOn;
+    final success = await service.updateActuatorState(isHeaterOn: newValue);
+
+    if (success) {
       _showSuccessSnackbar(
-        sensorData.isHeaterOn ? 'Pemanas dimatikan' : 'Pemanas dinyalakan',
+        newValue ? 'Pemanas dinyalakan' : 'Pemanas dimatikan',
       );
-    } catch (e) {
+    } else {
       _showErrorSnackbar('Gagal mengontrol pemanas. Coba lagi.');
-    } finally {
-      setState(() => _isHeaterLoading = false);
     }
+
+    if (mounted) setState(() => _isHeaterLoading = false);
   }
 
   void _showSuccessSnackbar(String message) {

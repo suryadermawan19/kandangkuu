@@ -12,8 +12,15 @@ class SensorModel {
   final bool isHeaterOn;
   final bool isAutoMode;
 
+  // Servo automation states
+  final bool servoPakanTrigger;
+  final bool servoAirTrigger;
+
   // UX Fix #1: Connectivity tracking
   final DateTime? lastUpdate;
+
+  // Offline resilience
+  final bool isFromCache;
 
   // Default threshold: data older than 5 minutes = stale
   static const int staleThresholdMinutes = 5;
@@ -29,7 +36,10 @@ class SensorModel {
     this.isFanOn = false,
     this.isHeaterOn = false,
     this.isAutoMode = true,
+    this.servoPakanTrigger = false,
+    this.servoAirTrigger = false,
     this.lastUpdate,
+    this.isFromCache = false,
   });
 
   /// Check if sensor data is stale (older than threshold)
@@ -60,7 +70,11 @@ class SensorModel {
   }
 
   // Factory method to map from Firestore JSON
-  factory SensorModel.fromJson(Map<String, dynamic> json) {
+  // Now accepts optional isFromCache parameter
+  factory SensorModel.fromJson(
+    Map<String, dynamic> json, {
+    bool isFromCache = false,
+  }) {
     // Parse timestamp from Firestore
     DateTime? parsedTimestamp;
     if (json['last_update'] != null) {
@@ -84,7 +98,10 @@ class SensorModel {
       isFanOn: json['fan_status'] as bool? ?? false,
       isHeaterOn: json['heater_status'] as bool? ?? false,
       isAutoMode: json['is_auto_mode'] as bool? ?? true,
+      servoPakanTrigger: json['servo_pakan_trigger'] as bool? ?? false,
+      servoAirTrigger: json['servo_air_trigger'] as bool? ?? false,
       lastUpdate: parsedTimestamp,
+      isFromCache: isFromCache,
     );
   }
 
@@ -100,6 +117,8 @@ class SensorModel {
       'fan_status': isFanOn,
       'heater_status': isHeaterOn,
       'is_auto_mode': isAutoMode,
+      'servo_pakan_trigger': servoPakanTrigger,
+      'servo_air_trigger': servoAirTrigger,
       'last_update': lastUpdate != null
           ? Timestamp.fromDate(lastUpdate!)
           : FieldValue.serverTimestamp(),
@@ -118,7 +137,10 @@ class SensorModel {
     bool? isFanOn,
     bool? isHeaterOn,
     bool? isAutoMode,
+    bool? servoPakanTrigger,
+    bool? servoAirTrigger,
     DateTime? lastUpdate,
+    bool? isFromCache,
   }) {
     return SensorModel(
       temperature: temperature ?? this.temperature,
@@ -131,7 +153,10 @@ class SensorModel {
       isFanOn: isFanOn ?? this.isFanOn,
       isHeaterOn: isHeaterOn ?? this.isHeaterOn,
       isAutoMode: isAutoMode ?? this.isAutoMode,
+      servoPakanTrigger: servoPakanTrigger ?? this.servoPakanTrigger,
+      servoAirTrigger: servoAirTrigger ?? this.servoAirTrigger,
       lastUpdate: lastUpdate ?? this.lastUpdate,
+      isFromCache: isFromCache ?? this.isFromCache,
     );
   }
 }

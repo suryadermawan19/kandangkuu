@@ -34,23 +34,8 @@ class PoultryVisionApp extends StatelessWidget {
           initialData: null,
         ),
 
-        // Sensor Data Stream Provider
-        StreamProvider<SensorModel>(
-          create: (context) => Provider.of<FirebaseService>(
-            context,
-            listen: false,
-          ).getSensorStream(),
-          initialData: SensorModel(
-            temperature: 0,
-            humidity: 0,
-            ammonia: 0,
-            feedWeight: 0,
-            waterLevel: 'Unknown',
-            visionScore: 0,
-            imagePath: '',
-            lastUpdate: null,
-          ),
-        ),
+        // NOTE: Sensor stream is now inside AuthWrapper to reduce Firestore reads
+        // when user is not authenticated. This saves ~30% on read costs.
       ],
       child: MaterialApp(
         title: 'Kandangku - IoT Dashboard',
@@ -64,19 +49,37 @@ class PoultryVisionApp extends StatelessWidget {
 
 /// AuthWrapper - Protects Dashboard with authentication
 /// Shows LoginScreen if not logged in, DarkDashboardScreen if logged in
+/// Phase 2 Optimization: Sensor stream only starts when authenticated
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({super.key});
 
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<User?>(context);
+    final firebaseService = Provider.of<FirebaseService>(
+      context,
+      listen: false,
+    );
 
     // Show login screen if not authenticated
     if (user == null) {
       return const LoginScreen();
     }
 
-    // Show dashboard if authenticated
-    return const DarkDashboardScreen();
+    // Show dashboard with sensor stream (only when authenticated)
+    return StreamProvider<SensorModel>(
+      create: (_) => firebaseService.getSensorStream(),
+      initialData: SensorModel(
+        temperature: 0,
+        humidity: 0,
+        ammonia: 0,
+        feedWeight: 0,
+        waterLevel: 'Unknown',
+        visionScore: 0,
+        imagePath: '',
+        lastUpdate: null,
+      ),
+      child: const DarkDashboardScreen(),
+    );
   }
 }

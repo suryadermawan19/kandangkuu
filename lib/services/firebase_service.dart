@@ -34,10 +34,16 @@ class FirebaseService {
   /// Returns null on success, error message string on failure
   Future<String?> signIn(String email, String password) async {
     try {
-      await _auth.signInWithEmailAndPassword(
+      final userCredential = await _auth.signInWithEmailAndPassword(
         email: email.trim(),
         password: password,
       );
+
+      // Ensure user document exists with default role
+      if (userCredential.user != null) {
+        await _ensureUserDocument(userCredential.user!);
+      }
+
       return null; // Success
     } on FirebaseAuthException catch (e) {
       // Return user-friendly error messages in Bahasa Indonesia
@@ -63,6 +69,44 @@ class FirebaseService {
       }
       return 'Terjadi kesalahan. Coba lagi';
     }
+  }
+
+  /// Ensure user document exists in 'users' collection
+  Future<void> _ensureUserDocument(User user) async {
+    final userRef = _firestore.collection('users').doc(user.uid);
+    final doc = await userRef.get();
+
+    if (!doc.exists) {
+      // Create new user doc with default 'viewer' role
+      // For the VERY first user (or if you want to hardcode specific emails as admin),
+      // you can add logic here. For now, default to viewer for safety.
+      await userRef.set({
+        'email': user.email,
+        'role': 'viewer', // 'admin' or 'viewer'
+        'created_at': FieldValue.serverTimestamp(),
+        'last_login': FieldValue.serverTimestamp(),
+      });
+    } else {
+      // Update last login
+      await userRef.update({'last_login': FieldValue.serverTimestamp()});
+    }
+  }
+
+  /// Stream of user role ('admin' or 'viewer')
+  Stream<String> getUserRoleStream() {
+    final user = _auth.currentUser;
+    if (user == null) return Stream.value('viewer');
+
+    return _firestore.collection('users').doc(user.uid).snapshots().map((
+      snapshot,
+    ) {
+      if (!snapshot.exists) {
+        // Self-healing: Create document if missing
+        _ensureUserDocument(user);
+        return 'viewer';
+      }
+      return snapshot.data()?['role'] as String? ?? 'viewer';
+    });
   }
 
   /// Sign out current user
@@ -117,28 +161,74 @@ class FirebaseService {
     }, SetOptions(merge: true));
   }
 
+  /// Update feed threshold configuration for servo automation (in grams)
+  Future<void> updateFeedThreshold(double minFeedThreshold) async {
+    await _firestore.collection('config').doc('thresholds').set({
+      'min_feed_threshold': minFeedThreshold,
+    }, SetOptions(merge: true));
+  }
+
+  // ============ MANUAL SERVO TRIGGERS ============
+
+  /// Trigger manual feed dispensing (one-press trigger)
+  /// Returns true on success, false on failure
+  /// Includes timestamp for Cloud Functions timeout detection
+  Future<bool> triggerManualFeed() async {
+    try {
+      await _firestore.collection(_collectionName).doc(_docId).set({
+        'servo_pakan_trigger': true,
+        'servo_pakan_timestamp': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('Error triggering manual feed: $e');
+      return false;
+    }
+  }
+
+  /// Trigger manual water dispensing (one-press trigger)
+  /// Returns true on success, false on failure
+  /// Includes timestamp for Cloud Functions timeout detection
+  Future<bool> triggerManualWater() async {
+    try {
+      await _firestore.collection(_collectionName).doc(_docId).set({
+        'servo_air_trigger': true,
+        'servo_air_timestamp': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('Error triggering manual water: $e');
+      return false;
+    }
+  }
+
   // ============ SENSOR DATA METHODS ============
 
   // Stream of sensor data
   Stream<SensorModel> getSensorStream() {
-    return _firestore.collection(_collectionName).doc(_docId).snapshots().map((
-      snapshot,
-    ) {
-      if (snapshot.exists && snapshot.data() != null) {
-        return SensorModel.fromJson(snapshot.data()!);
-      } else {
-        // Return default/empty model if doc doesn't exist yet
-        return SensorModel(
-          temperature: 0,
-          humidity: 0,
-          ammonia: 0,
-          feedWeight: 0,
-          waterLevel: 'Unknown',
-          visionScore: 0,
-          imagePath: '',
-        );
-      }
-    });
+    return _firestore
+        .collection(_collectionName)
+        .doc(_docId)
+        .snapshots(includeMetadataChanges: true) // Detect offline/cache data
+        .map((snapshot) {
+          if (snapshot.exists && snapshot.data() != null) {
+            return SensorModel.fromJson(
+              snapshot.data()!,
+              isFromCache: snapshot.metadata.isFromCache,
+            );
+          } else {
+            // Return default/empty model if doc doesn't exist yet
+            return SensorModel(
+              temperature: 0,
+              humidity: 0,
+              ammonia: 0,
+              feedWeight: 0,
+              waterLevel: 'Unknown',
+              visionScore: 0,
+              imagePath: '',
+            );
+          }
+        });
   }
 
   // Get Latest Image URL
@@ -180,21 +270,29 @@ class FirebaseService {
   }
 
   // Actuator Control (Manual Override)
-  Future<void> updateActuatorState({
+  /// Returns true on success, false on failure
+  Future<bool> updateActuatorState({
     bool? isFanOn,
     bool? isHeaterOn,
     bool? isAutoMode,
   }) async {
-    Map<String, dynamic> updates = {};
-    if (isFanOn != null) updates['fan_status'] = isFanOn;
-    if (isHeaterOn != null) updates['heater_status'] = isHeaterOn;
-    if (isAutoMode != null) updates['is_auto_mode'] = isAutoMode;
+    try {
+      Map<String, dynamic> updates = {};
+      if (isFanOn != null) updates['fan_status'] = isFanOn;
+      if (isHeaterOn != null) updates['heater_status'] = isHeaterOn;
+      if (isAutoMode != null) updates['is_auto_mode'] = isAutoMode;
 
-    if (updates.isNotEmpty) {
-      await _firestore
-          .collection(_collectionName)
-          .doc(_docId)
-          .set(updates, SetOptions(merge: true));
+      if (updates.isNotEmpty) {
+        await _firestore
+            .collection(_collectionName)
+            .doc(_docId)
+            .set(updates, SetOptions(merge: true))
+            .timeout(const Duration(seconds: 10));
+      }
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('Error updating actuator state: $e');
+      return false;
     }
   }
 
