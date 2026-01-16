@@ -273,7 +273,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             unit: ' gram',
             min: 0.0,
             max: 1000.0,
-            divisions: 100,
+            divisions: 20, // Step: 50 grams
             onChanged: (val) => setState(() => _minFeedThreshold = val),
             onChangeEnd: (val) => _saveFeedThreshold(firebaseService),
           ),

@@ -477,10 +477,15 @@ exports.updateTelemetry = onRequest({ cors: true }, async (request, response) =>
     response.status(200).json({
       status: 'success',
       message: 'Telemetry updated',
-      // Return trigger states for ESP32 to act upon
+      // Return trigger states for ESP32 servo control
       triggers: {
         servo_pakan_trigger: currentData.servo_pakan_trigger || false,
         servo_air_trigger: currentData.servo_air_trigger || false
+      },
+      // Return actuator states for ESP32 relay control (fan & heater)
+      actuators: {
+        fan: currentData.is_fan_on === true,
+        heater: currentData.is_heater_on === true
       }
     });
   } catch (error) {
