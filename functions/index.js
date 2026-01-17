@@ -120,8 +120,8 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
 
   // --- AUTOMATION LOGIC (Using Dynamic Thresholds) ---
   if (isAutoMode) {
-    const currentFanState = newData.fan_status || false;
-    const currentHeaterState = newData.heater_status || false;
+    const currentFanState = newData.is_fan_on || false;
+    const currentHeaterState = newData.is_heater_on || false;
 
     // Fan Logic - Using dynamic thresholds
     const needsFan = ammonia > maxAmmonia || temp > maxTemp;
@@ -143,7 +143,7 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
     }
 
     if (newFanState !== currentFanState) {
-      updates.fan_status = newFanState;
+      updates.is_fan_on = newFanState;
       updates.last_fan_toggle_timestamp = admin.firestore.Timestamp.now();
       stateChanged = true;
       console.log(JSON.stringify({
@@ -176,7 +176,7 @@ exports.checkConditionsAndAutomate = onDocumentUpdated("coops/kandang_01", async
     }
 
     if (newHeaterState !== currentHeaterState) {
-      updates.heater_status = newHeaterState;
+      updates.is_heater_on = newHeaterState;
       updates.last_heater_toggle_timestamp = admin.firestore.Timestamp.now();
       stateChanged = true;
     }
