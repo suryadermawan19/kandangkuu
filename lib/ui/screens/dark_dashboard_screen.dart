@@ -610,23 +610,22 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
       ),
       centerTitle: true,
       actions: [
+        // Settings button (for all authenticated users now)
+        IconButton(
+          icon: const Icon(
+            Icons.settings_rounded,
+            color: DarkTheme.textPrimary,
+          ),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SettingsScreen()),
+            );
+          },
+        ),
+        // Notification button with badge
         Stack(
           children: [
-            if (isAdmin) // Only show settings to admin
-              IconButton(
-                icon: const Icon(
-                  Icons.settings_rounded,
-                  color: DarkTheme.textPrimary,
-                ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const SettingsScreen(),
-                    ),
-                  );
-                },
-              ),
             IconButton(
               icon: const Icon(
                 Icons.notifications_outlined,
