@@ -54,71 +54,51 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
       listen: false,
     );
 
-    return StreamProvider<String>(
-      create: (_) => firebaseService.getUserRoleStream(),
-      initialData: 'viewer', // Default to safer viewer role
-      child: Consumer<String>(
-        builder: (context, userRole, child) {
-          final isAdmin = userRole == 'admin';
+    // All authenticated users now have full control access (no role restrictions)
+    final isAdmin = true;
 
-          return Scaffold(
-            backgroundColor: DarkTheme.backgroundPrimary,
-            appBar: _buildHeader(sensorData, isAdmin),
-            body: Column(
-              children: [
-                // UX Fix #1: Offline Banner (Cache or Stale)
-                if (sensorData.isStale || sensorData.isFromCache)
-                  _buildOfflineBanner(sensorData),
+    return Scaffold(
+      backgroundColor: DarkTheme.backgroundPrimary,
+      appBar: _buildHeader(sensorData, isAdmin),
+      body: Column(
+        children: [
+          // UX Fix #1: Offline Banner (Cache or Stale)
+          if (sensorData.isStale || sensorData.isFromCache)
+            _buildOfflineBanner(sensorData),
 
-                // Role Banner (Viewer Mode)
-                if (!isAdmin) _buildViewerBanner(),
+          // Viewer banner removed - all users have full access now
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Servo Status Banner (Active Dispensing)
+                  _buildServoStatusBanner(sensorData),
 
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Servo Status Banner (Active Dispensing)
-                        _buildServoStatusBanner(sensorData),
+                  // Metric Grid
+                  _buildMetricGrid(sensorData),
+                  const SizedBox(height: 20),
 
-                        // Metric Grid
-                        _buildMetricGrid(sensorData),
-                        const SizedBox(height: 20),
+                  // Vision Card (Camera Feed)
+                  _buildVisionCard(sensorData),
+                  const SizedBox(height: 24),
 
-                        // Vision Card (Camera Feed)
-                        _buildVisionCard(sensorData),
-                        const SizedBox(height: 24),
+                  // Logistik & Pakan Section (Manual Servo Controls)
+                  _buildLogistikSection(sensorData, firebaseService, isAdmin),
+                  const SizedBox(height: 24),
 
-                        // Logistik & Pakan Section (Manual Servo Controls)
-                        _buildLogistikSection(
-                          sensorData,
-                          firebaseService,
-                          isAdmin,
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Control Section
-                        _buildControlSection(
-                          sensorData,
-                          firebaseService,
-                          isAdmin,
-                        ),
-                        const SizedBox(height: 100), // Space for bottom nav
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+                  // Control Section
+                  _buildControlSection(sensorData, firebaseService, isAdmin),
+                  const SizedBox(height: 100), // Space for bottom nav
+                ],
+              ),
             ),
-            bottomNavigationBar: _buildBottomNav(),
-          );
-        },
+          ),
+        ],
       ),
+      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
@@ -222,29 +202,7 @@ class _DarkDashboardScreenState extends State<DarkDashboardScreen>
     );
   }
 
-  // ============ ROLE BANNER ============
-  Widget _buildViewerBanner() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Colors.blueGrey.withValues(alpha: 0.2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
-          Icon(Icons.visibility_rounded, size: 16, color: Colors.blueGrey),
-          SizedBox(width: 8),
-          Text(
-            'Mode Penonton (Hanya Lihat)',
-            style: TextStyle(
-              color: Colors.blueGrey,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Viewer banner removed - all users have full access
 
   // ============ SERVO STATUS BANNER ============
   Widget _buildServoStatusBanner(SensorModel sensorData) {

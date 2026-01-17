@@ -1,444 +1,283 @@
 /*
- * ESP32 Automatic Feed & Water Dispenser
- * Using Servo SG90 with ESP32Servo Library
- *
- * Hardware:
- * - ESP32 DevKit
- * - SG90 Servo for Feed (GPIO 13)
- * - SG90 Servo for Water (GPIO 14)
- * - WiFi connection to Firebase
- *
- * Libraries required:
- * - ESP32Servo (https://github.com/madhephaestus/ESP32Servo)
- * - WiFi (built-in)
- * - HTTPClient (built-in)
- * - ArduinoJson (https://arduinojson.org/)
+ * POULTRY VISION - FULL FIRMWARE
+ * Board: ESP32 DevKitC V4
+ * * Update: Integrasi Servo, Sensor SHT31, MQ135, LoadCell, dan Relay.
  */
 
-#include "secrets.h"
+#include "HX711.h"
+#include "secrets.h" // Pastikan file secrets.h ada (isi SSID, Pass, API Key)
+#include <Adafruit_SHT31.h>
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <Wire.h>
 
-// ============ CONFIGURATION ============
-// Credentials moved to secrets.h
 
-// Firebase Cloud Function endpoint
-// Note: PROJECT_ID is defined in secrets.h if you want to make the URL dynamic
-// too, but for simplicity we keep the full URL construction here or hardcode
-// the structure. Let's use string concatenation/formatting dynamically if
-// possible, or just string.
+// ============ KONFIGURASI PIN (WIRING DEVKIT V4) ============
+// I2C Sensor (SHT31)
+#define PIN_SDA 21
+#define PIN_SCL 22
 
-String telemetryUrl = String("https://asia-southeast2-") + PROJECT_ID +
-                      ".cloudfunctions.net/updateTelemetry";
-// const char* API_KEY is defined in secrets.h
+// Analog Sensors
+#define PIN_MQ135 34       // Input Only
+#define PIN_WATER_LEVEL 35 // Input Only
 
-// Servo GPIO pins
-const int SERVO_PAKAN_PIN = 13;
-const int SERVO_AIR_PIN = 14;
+// Load Cell (HX711)
+#define PIN_LOADCELL_DT 18
+#define PIN_LOADCELL_SCK 19
 
-// Servo angles
-const int SERVO_CLOSED = 0;
-const int SERVO_OPEN = 90;
+// Actuators (Output)
+#define PIN_RELAY_FAN 25
+#define PIN_RELAY_HEATER 26
+#define PIN_SERVO_PAKAN 27
+#define PIN_SERVO_AIR 14
 
-// Timing constants
-const unsigned long DISPENSE_TIME_MS = 5000;       // 5 seconds to dispense
-const unsigned long RETURN_DELAY_MS = 500;         // Delay before returning
-const unsigned long TELEMETRY_INTERVAL_MS = 10000; // Report every 10 seconds
-const unsigned long FIREBASE_CHECK_INTERVAL_MS =
-    2000; // Check triggers every 2 seconds
+// ============ KONSTANTA KALIBRASI ============
+// Ganti nilai ini dengan hasil kalibrasi Load Cell kamu
+const float LOADCELL_CALIBRATION_FACTOR = 420.0;
+// Ambang batas level air (0-4095)
+const int WATER_LEVEL_THRESHOLD = 1500;
 
-// ============ GLOBAL OBJECTS ============
+// ============ OBJEK GLOBAL ============
+Adafruit_SHT31 sht31 = Adafruit_SHT31();
+HX711 scale;
 Servo servoPakan;
 Servo servoAir;
 
-// State machine for non-blocking servo control
-enum ServoState { IDLE, OPENING, WAITING, CLOSING, REPORTING };
+// ============ VARIABEL STATE ============
+// Servo State Machine
+enum ServoState { IDLE, OPENING, WAITING, CLOSING, DONE };
+ServoState pakanState = IDLE;
+ServoState airState = IDLE;
+unsigned long pakanTimer = 0;
+unsigned long airTimer = 0;
+bool triggerPakan = false;
+bool triggerAir = false;
 
-// Servo Pakan state
-ServoState servoPakanState = IDLE;
-unsigned long servoPakanStartTime = 0;
-bool servoPakanTrigger = false;
+// Konstanta Servo
+const int SERVO_CLOSE_ANGLE = 0;
+const int SERVO_OPEN_ANGLE = 90;
+const unsigned long DISPENSE_DURATION = 5000; // 5 Detik buka
 
-// Servo Air state
-ServoState servoAirState = IDLE;
-unsigned long servoAirStartTime = 0;
-bool servoAirTrigger = false;
-
-// Timing
+// Timer Telemetry
 unsigned long lastTelemetryTime = 0;
-unsigned long lastFirebaseCheck = 0;
+const unsigned long TELEMETRY_INTERVAL = 5000; // Kirim data tiap 5 detik
 
-// Mock sensor data (replace with actual sensors)
-float temperature = 28.5;
-float humidity = 65.0;
-float ammonia = 15.0;
-float feedWeight = 800.0;
-String waterLevel = "Cukup";
+// URL Cloud Functions (Diambil dari secrets.h atau hardcode)
+String telemetryUrl = String("https://asia-southeast2-") + PROJECT_ID +
+                      ".cloudfunctions.net/updateTelemetry";
 
-// ============ SETUP ============
 void setup() {
   Serial.begin(115200);
-  Serial.println("ESP32 Feed & Water Dispenser Starting...");
+  Serial.println("\n🚀 PoultryVision Starting...");
 
-  // Initialize servos
+  // 1. Setup Pin Output
+  pinMode(PIN_RELAY_FAN, OUTPUT);
+  pinMode(PIN_RELAY_HEATER, OUTPUT);
+  // Matikan relay saat start (Active LOW/HIGH tergantung modul, asumsi HIGH=ON)
+  digitalWrite(PIN_RELAY_FAN, LOW);
+  digitalWrite(PIN_RELAY_HEATER, LOW);
+
+  // 2. Setup Servo
   ESP32PWM::allocateTimer(0);
   ESP32PWM::allocateTimer(1);
-
-  servoPakan.setPeriodHertz(50); // Standard 50Hz servo
+  servoPakan.setPeriodHertz(50);
   servoAir.setPeriodHertz(50);
+  servoPakan.attach(PIN_SERVO_PAKAN, 500, 2400);
+  servoAir.attach(PIN_SERVO_AIR, 500, 2400);
 
-  servoPakan.attach(SERVO_PAKAN_PIN, 500, 2400);
-  servoAir.attach(SERVO_AIR_PIN, 500, 2400);
+  // Posisi awal tertutup
+  servoPakan.write(SERVO_CLOSE_ANGLE);
+  servoAir.write(SERVO_CLOSE_ANGLE);
 
-  // Set initial position (closed)
-  servoPakan.write(SERVO_CLOSED);
-  servoAir.write(SERVO_CLOSED);
+  // 3. Setup Sensors
+  Wire.begin(PIN_SDA, PIN_SCL);
+  if (!sht31.begin(0x44)) {
+    Serial.println("⚠️ Warning: SHT31 tidak ditemukan!");
+  }
 
-  Serial.println("Servos initialized");
+  scale.begin(PIN_LOADCELL_DT, PIN_LOADCELL_SCK);
+  scale.set_scale(LOADCELL_CALIBRATION_FACTOR);
+  scale.tare(); // Reset berat ke 0 saat nyala (pastikan wadah kosong saat
+                // boot/atau sesuaikan logika)
 
-  // Connect to WiFi
+  // 4. Koneksi WiFi
   connectWiFi();
 }
 
-// ============ MAIN LOOP ============
 void loop() {
-  // Maintain WiFi connection
+  // Reconnect WiFi jika putus
   if (WiFi.status() != WL_CONNECTED) {
     connectWiFi();
   }
 
-  // Non-blocking servo control
-  handleServoPakan();
-  handleServoAir();
+  // Handle Logic Servo (Non-blocking)
+  handleServoPakanLogic();
+  handleServoAirLogic();
 
-  // DEPRECATED: Direct Firestore polling removed for security
-  // Triggers are now received in the telemetry response from Cloud Functions
-  // The checkFirebaseTriggers() function is kept for reference but not called
-  // if (millis() - lastFirebaseCheck >= FIREBASE_CHECK_INTERVAL_MS) {
-  //   lastFirebaseCheck = millis();
-  //   checkFirebaseTriggers();
-  // }
-
-  // Send telemetry periodically - triggers received in response
-  if (millis() - lastTelemetryTime >= TELEMETRY_INTERVAL_MS) {
+  // Kirim Telemetry + Terima Perintah (Relay & Servo)
+  if (millis() - lastTelemetryTime >= TELEMETRY_INTERVAL) {
     lastTelemetryTime = millis();
-    sendTelemetry(); // Response contains trigger states
+    sendTelemetryAndGetTriggers();
   }
 }
 
-// ============ WIFI CONNECTION ============
-void connectWiFi() {
-  Serial.print("Connecting to WiFi");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi Connected!");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println("\nWiFi Connection Failed!");
-  }
-}
-
-// ============ NON-BLOCKING SERVO PAKAN CONTROL ============
-void handleServoPakan() {
-  switch (servoPakanState) {
+// ============ FUNGSI LOGIKA SERVO ============
+void handleServoPakanLogic() {
+  switch (pakanState) {
   case IDLE:
-    if (servoPakanTrigger) {
-      Serial.println("[Pakan] Starting dispense...");
-      servoPakan.write(SERVO_OPEN);
-      servoPakanStartTime = millis();
-      servoPakanState = WAITING;
+    if (triggerPakan) {
+      Serial.println("[PAKAN] Membuka katup...");
+      servoPakan.write(SERVO_OPEN_ANGLE);
+      pakanTimer = millis();
+      pakanState = WAITING;
     }
     break;
-
   case WAITING:
-    if (millis() - servoPakanStartTime >= DISPENSE_TIME_MS) {
-      Serial.println("[Pakan] Dispense complete, closing...");
-      servoPakan.write(SERVO_CLOSED);
-      servoPakanStartTime = millis();
-      servoPakanState = CLOSING;
+    if (millis() - pakanTimer >= DISPENSE_DURATION) {
+      Serial.println("[PAKAN] Menutup katup...");
+      servoPakan.write(SERVO_CLOSE_ANGLE);
+      pakanState = DONE; // Menandakan selesai, perlu lapor ke server
     }
     break;
-
-  case CLOSING:
-    if (millis() - servoPakanStartTime >= RETURN_DELAY_MS) {
-      Serial.println("[Pakan] Reporting completion to Firebase...");
-      servoPakanTrigger = false;
-      reportServoComplete("servo_pakan_trigger");
-      servoPakanState = IDLE;
-    }
-    break;
-
-  default:
-    servoPakanState = IDLE;
+  case DONE:
+    // Status 'DONE' akan memicu pengiriman laporan 'servo_pakan_trigger: false'
+    // di fungsi sendTelemetryAndGetTriggers selanjutnya.
+    triggerPakan = false; // Reset trigger lokal
+    pakanState = IDLE;
     break;
   }
 }
 
-// ============ NON-BLOCKING SERVO AIR CONTROL ============
-void handleServoAir() {
-  switch (servoAirState) {
+void handleServoAirLogic() {
+  switch (airState) {
   case IDLE:
-    if (servoAirTrigger) {
-      Serial.println("[Air] Starting dispense...");
-      servoAir.write(SERVO_OPEN);
-      servoAirStartTime = millis();
-      servoAirState = WAITING;
+    if (triggerAir) {
+      Serial.println("[AIR] Membuka katup...");
+      servoAir.write(SERVO_OPEN_ANGLE);
+      airTimer = millis();
+      airState = WAITING;
     }
     break;
-
   case WAITING:
-    if (millis() - servoAirStartTime >= DISPENSE_TIME_MS) {
-      Serial.println("[Air] Dispense complete, closing...");
-      servoAir.write(SERVO_CLOSED);
-      servoAirStartTime = millis();
-      servoAirState = CLOSING;
+    if (millis() - airTimer >= DISPENSE_DURATION) {
+      Serial.println("[AIR] Menutup katup...");
+      servoAir.write(SERVO_CLOSE_ANGLE);
+      airState = DONE;
     }
     break;
-
-  case CLOSING:
-    if (millis() - servoAirStartTime >= RETURN_DELAY_MS) {
-      Serial.println("[Air] Reporting completion to Firebase...");
-      servoAirTrigger = false;
-      reportServoComplete("servo_air_trigger");
-      servoAirState = IDLE;
-    }
-    break;
-
-  default:
-    servoAirState = IDLE;
+  case DONE:
+    triggerAir = false;
+    airState = IDLE;
     break;
   }
 }
 
-// ============ CHECK FIREBASE TRIGGERS ============
-// Polls Firestore REST API to check for trigger changes
-void checkFirebaseTriggers() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[Poll] WiFi not connected");
-    return;
-  }
+// ============ BACA SENSOR & KIRIM DATA ============
+void sendTelemetryAndGetTriggers() {
+  // 1. Baca Semua Sensor
+  float temp = sht31.readTemperature();
+  float hum = sht31.readHumidity();
 
+  // Baca MQ135 (Raw Analog -> Map ke PPM kasar)
+  int mqRaw = analogRead(PIN_MQ135);
+  float ammonia = map(mqRaw, 0, 4095, 0, 100); // Kalibrasi manual nanti
+
+  // Baca Load Cell (Berat dalam Gram)
+  float weight = scale.get_units(5);
+  if (weight < 0)
+    weight = 0;
+
+  // Baca Water Level
+  int waterRaw = analogRead(PIN_WATER_LEVEL);
+  String waterStatus = (waterRaw > WATER_LEVEL_THRESHOLD) ? "Cukup" : "Habis";
+
+  // Cek validitas SHT31
+  if (isnan(temp))
+    temp = 0;
+  if (isnan(hum))
+    hum = 0;
+
+  // 2. Buat JSON Payload
+  StaticJsonDocument<512> doc;
+  doc["temperature"] = temp;
+  doc["humidity"] = hum;
+  doc["ammonia"] = ammonia;
+  doc["feed_weight"] = weight;
+  doc["water_level"] = waterStatus;
+
+  // Jika servo baru saja selesai bekerja, lapor balik untuk mematikan trigger
+  // di server
+  if (pakanState == DONE)
+    doc["servo_pakan_trigger"] = false;
+  if (airState == DONE)
+    doc["servo_air_trigger"] = false;
+
+  String payload;
+  serializeJson(doc, payload);
+
+  // 3. Kirim ke Cloud Functions
   HTTPClient http;
-
-  // Firestore REST API endpoint for the coop document
-  // Format:
-  // https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/{collection}/{docId}
-  String firestoreUrl =
-      String("https://firestore.googleapis.com/v1/projects/") + PROJECT_ID +
-      "/databases/(default)/documents/coops/kandang_01";
-
-  http.begin(firestoreUrl);
+  http.begin(telemetryUrl);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-api-key", API_KEY); // Dari secrets.h
 
-  int httpCode = http.GET();
+  int httpCode = http.POST(payload);
 
+  // 4. Proses Respons (Perintah dari Server)
   if (httpCode == 200) {
     String response = http.getString();
+    // Serial.println("Respon Server: " + response); // Debugging
 
-    // Parse the Firestore REST API response
-    StaticJsonDocument<2048> doc;
-    DeserializationError error = deserializeJson(doc, response);
+    StaticJsonDocument<1024> respDoc;
+    deserializeJson(respDoc, response);
 
-    if (!error) {
-      // Firestore REST API returns values in a specific format
-      // { "fields": { "servo_pakan_trigger": { "booleanValue": true } } }
-
-      JsonObject fields = doc["fields"];
-
-      // Check servo_pakan_trigger
-      if (fields.containsKey("servo_pakan_trigger")) {
-        bool newPakanTrigger =
-            fields["servo_pakan_trigger"]["booleanValue"] | false;
-        if (newPakanTrigger && !servoPakanTrigger && servoPakanState == IDLE) {
-          Serial.println("[Poll] Feed trigger received!");
-          servoPakanTrigger = true;
-        }
-      }
-
-      // Check servo_air_trigger
-      if (fields.containsKey("servo_air_trigger")) {
-        bool newAirTrigger =
-            fields["servo_air_trigger"]["booleanValue"] | false;
-        if (newAirTrigger && !servoAirTrigger && servoAirState == IDLE) {
-          Serial.println("[Poll] Water trigger received!");
-          servoAirTrigger = true;
-        }
-      }
-    } else {
-      Serial.print("[Poll] JSON parse error: ");
-      Serial.println(error.c_str());
+    // Ambil Data Triggers (Servo)
+    JsonObject triggers = respDoc["triggers"];
+    if (triggers.containsKey("servo_pakan_trigger")) {
+      bool serverCmd = triggers["servo_pakan_trigger"];
+      if (serverCmd && pakanState == IDLE)
+        triggerPakan = true;
     }
-  } else if (httpCode == 401 || httpCode == 403) {
-    Serial.println("[Poll] Auth error - Firestore may require authentication");
+    if (triggers.containsKey("servo_air_trigger")) {
+      bool serverCmd = triggers["servo_air_trigger"];
+      if (serverCmd && airState == IDLE)
+        triggerAir = true;
+    }
+
+    // Ambil Data Status Aktuator (Kipas & Heater)
+    // NOTE: Pastikan backend index.js kamu mengembalikan field ini di response
+    // json Jika tidak, tambahkan di index.js: actuators: { fan: x, heater: y }
+    if (respDoc.containsKey("actuators")) {
+      bool fanState = respDoc["actuators"]["fan"];
+      bool heaterState = respDoc["actuators"]["heater"];
+
+      digitalWrite(PIN_RELAY_FAN, fanState ? HIGH : LOW);
+      digitalWrite(PIN_RELAY_HEATER, heaterState ? HIGH : LOW);
+
+      Serial.printf("[RELAY] Fan: %d | Heater: %d\n", fanState, heaterState);
+    }
+
   } else {
-    Serial.print("[Poll] HTTP Error: ");
-    Serial.println(httpCode);
+    Serial.printf("HTTP Error: %d\n", httpCode);
   }
 
   http.end();
 }
 
-// ============ SEND TELEMETRY TO FIREBASE ============
-void sendTelemetry() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi not connected, skipping telemetry");
-    return;
+void connectWiFi() {
+  Serial.print("Menghubungkan WiFi");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int attempt = 0;
+  while (WiFi.status() != WL_CONNECTED && attempt < 20) {
+    delay(500);
+    Serial.print(".");
+    attempt++;
   }
-
-  HTTPClient http;
-  http.begin(telemetryUrl);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-api-key", API_KEY);
-
-  // Build JSON payload
-  StaticJsonDocument<256> doc;
-  doc["temperature"] = temperature;
-  doc["humidity"] = humidity;
-  doc["ammonia"] = ammonia;
-  doc["feed_weight"] = feedWeight;
-  doc["water_level"] = waterLevel;
-
-  String payload;
-  serializeJson(doc, payload);
-
-  Serial.print("Sending telemetry: ");
-  Serial.println(payload);
-
-  int httpCode = http.POST(payload);
-
-  if (httpCode > 0) {
-    String response = http.getString();
-    Serial.print("Response (");
-    Serial.print(httpCode);
-    Serial.print("): ");
-    Serial.println(response);
-
-    // Parse response for trigger updates (if included)
-    parseResponseForTriggers(response);
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✅ WiFi Connected!");
   } else {
-    Serial.print("HTTP Error: ");
-    Serial.println(http.errorToString(httpCode));
+    Serial.println("\n❌ WiFi Gagal!");
   }
-
-  http.end();
-}
-
-// ============ REPORT SERVO COMPLETION ============
-void reportServoComplete(const char *triggerField) {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi not connected, cannot report servo completion");
-    return;
-  }
-
-  HTTPClient http;
-  http.begin(telemetryUrl);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-api-key", API_KEY);
-
-  // Build JSON payload with servo trigger reset
-  StaticJsonDocument<256> doc;
-  doc["temperature"] = temperature;
-  doc["humidity"] = humidity;
-  doc["ammonia"] = ammonia;
-  doc["feed_weight"] = feedWeight;
-  doc["water_level"] = waterLevel;
-  doc[triggerField] = false; // Reset the trigger
-
-  String payload;
-  serializeJson(doc, payload);
-
-  Serial.print("Reporting servo complete: ");
-  Serial.println(payload);
-
-  int httpCode = http.POST(payload);
-
-  if (httpCode > 0) {
-    Serial.print("Servo report response (");
-    Serial.print(httpCode);
-    Serial.println(")");
-  } else {
-    Serial.print("HTTP Error: ");
-    Serial.println(http.errorToString(httpCode));
-  }
-
-  http.end();
-}
-
-// ============ PARSE RESPONSE FOR TRIGGERS ============
-// PRIMARY trigger source: Parse telemetry response from Cloud Functions
-// The updateTelemetry endpoint now returns trigger states in the response
-void parseResponseForTriggers(String response) {
-  StaticJsonDocument<512> doc;
-  DeserializationError error = deserializeJson(doc, response);
-
-  if (!error) {
-    // New format: triggers are in a nested "triggers" object
-    if (doc.containsKey("triggers")) {
-      JsonObject triggers = doc["triggers"];
-
-      // Check servo_pakan_trigger
-      if (triggers.containsKey("servo_pakan_trigger")) {
-        bool newPakanTrigger = triggers["servo_pakan_trigger"];
-        if (newPakanTrigger && !servoPakanTrigger && servoPakanState == IDLE) {
-          Serial.println("[Telemetry] Feed trigger received from server!");
-          servoPakanTrigger = true;
-        }
-      }
-
-      // Check servo_air_trigger
-      if (triggers.containsKey("servo_air_trigger")) {
-        bool newAirTrigger = triggers["servo_air_trigger"];
-        if (newAirTrigger && !servoAirTrigger && servoAirState == IDLE) {
-          Serial.println("[Telemetry] Water trigger received from server!");
-          servoAirTrigger = true;
-        }
-      }
-    }
-    // Legacy fallback: check root level (for backwards compatibility)
-    else {
-      if (doc.containsKey("servo_pakan_trigger")) {
-        bool newPakanTrigger = doc["servo_pakan_trigger"];
-        if (newPakanTrigger && !servoPakanTrigger && servoPakanState == IDLE) {
-          Serial.println("Feed trigger received from server!");
-          servoPakanTrigger = true;
-        }
-      }
-
-      if (doc.containsKey("servo_air_trigger")) {
-        bool newAirTrigger = doc["servo_air_trigger"];
-        if (newAirTrigger && !servoAirTrigger && servoAirState == IDLE) {
-          Serial.println("Water trigger received from server!");
-          servoAirTrigger = true;
-        }
-      }
-    }
-  } else {
-    Serial.print("[Telemetry] JSON parse error: ");
-    Serial.println(error.c_str());
-  }
-}
-
-// ============ HELPER: UPDATE MOCK SENSOR DATA ============
-// In real implementation, replace these with actual sensor readings
-void updateSensorData() {
-  // Read from DHT22 for temperature and humidity
-  // Read from MQ-135 for ammonia
-  // Read from load cell for feed weight
-  // Read from water level sensor for water level
-
-  // Mock: simulate decreasing feed weight
-  feedWeight -= 10;
-  if (feedWeight < 0)
-    feedWeight = 1000;
 }

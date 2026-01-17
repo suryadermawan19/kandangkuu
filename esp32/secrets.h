@@ -1,12 +1,16 @@
 #ifndef SECRETS_H
 #define SECRETS_H
 
-// WiFi Credentials
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+// Ganti dengan kredensial WiFi kamu
+const char *WIFI_SSID = "NAMA_WIFI_KAMU";
+const char *WIFI_PASSWORD = "PASSWORD_WIFI_KAMU";
 
-// API Keys & Config
-const char* API_KEY = "kandangku-iot-secret-2026"; // Matches backend default
-const char* PROJECT_ID = "kandangku-8f67c"; // Your Firebase Project ID
+// Project ID Firebase kamu
+const char *PROJECT_ID = "kandangku-8f67c";
+
+// API KEY (Lihat di functions/index.js bagian process.env.IOT_API_KEY)
+// Atau buat sembarang string panjang yang rahasia, lalu set di Environment
+// Variable Cloud Functions
+const char *API_KEY = "RAHASIA_DAPUR_123";
 
 #endif
