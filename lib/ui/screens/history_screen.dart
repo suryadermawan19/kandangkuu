@@ -43,11 +43,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _isLoading = true;
   String? _errorMessage;
 
+  bool _isLocaleInitialized = false;
+
   @override
   void initState() {
     super.initState();
     initializeDateFormatting('id_ID', null).then((_) {
-      if (mounted) _fetchHistoryData();
+      if (mounted) {
+        setState(() {
+          _isLocaleInitialized = true;
+        });
+        _fetchHistoryData();
+      }
     });
   }
 
@@ -95,7 +102,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final timestamp = entry['timestamp'] as DateTime?;
       final value = (entry[field] as num?)?.toDouble() ?? 0;
 
-      if (timestamp != null) {
+      // Filter out zero/invalid values for cleaner charts
+      if (timestamp != null && value > 0) {
         double x;
         if (_selectedFilterIndex == 0) {
           // 24 hours: x = hours ago
@@ -309,6 +317,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Prevent building UI before locale is ready
+    if (!_isLocaleInitialized) {
+      return Scaffold(
+        backgroundColor: DarkTheme.backgroundPrimary,
+        body: Center(
+          child: CircularProgressIndicator(color: DarkTheme.neonGreen),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: DarkTheme.backgroundPrimary,
       appBar: _buildAppBar(),
