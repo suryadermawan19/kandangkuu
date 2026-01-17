@@ -367,7 +367,7 @@ class FirebaseService {
           .collection('telemetry_history')
           .where('last_update', isGreaterThanOrEqualTo: cutoffTimestamp)
           .orderBy('last_update', descending: false) // Oldest first for charts
-          .limit(200) // Reasonable limit for chart performance
+          .limit(1000) // Increased limit for 30-day view (approx 1 data/hour)
           .get();
 
       return snapshot.docs.map((doc) {

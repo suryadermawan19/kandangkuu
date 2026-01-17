@@ -3,6 +3,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
 import 'package:kandangku/services/firebase_service.dart';
 import 'package:kandangku/ui/theme/dark_theme.dart';
+import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 /// History Screen - "Riwayat Sensor" for PoultryVision (Kandangku)
 /// Dark Industrial Green Theme with fl_chart visualizations
@@ -44,7 +46,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchHistoryData();
+    initializeDateFormatting('id_ID', null).then((_) {
+      if (mounted) _fetchHistoryData();
+    });
   }
 
   /// Fetch history data based on selected filter
@@ -780,23 +784,28 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             interval: _selectedFilterIndex == 0 ? 6 : 1,
                             getTitlesWidget: (value, meta) {
                               String label = '';
+                              final now = DateTime.now();
+
                               if (_selectedFilterIndex == 0) {
-                                label = '${value.toInt()}h';
+                                // 24 Hours View: value 0..24 (24 is now)
+                                final time = now.subtract(
+                                  Duration(
+                                    minutes: ((24 - value) * 60).toInt(),
+                                  ),
+                                );
+                                label = DateFormat('HH:mm').format(time);
                               } else if (_selectedFilterIndex == 1) {
-                                final days = [
-                                  'Sen',
-                                  'Sel',
-                                  'Rab',
-                                  'Kam',
-                                  'Jum',
-                                  'Sab',
-                                  'Min',
-                                ];
-                                if (value.toInt() < days.length) {
-                                  label = days[value.toInt()];
-                                }
+                                // 7 Days View: value 0..7 (7 is today)
+                                final time = now.subtract(
+                                  Duration(days: (7 - value).toInt()),
+                                );
+                                label = DateFormat('E', 'id_ID').format(time);
                               } else {
-                                label = 'H${value.toInt()}';
+                                // 30 Days View: value 0..30 (30 is today)
+                                final time = now.subtract(
+                                  Duration(days: (30 - value).toInt()),
+                                );
+                                label = DateFormat('d/M').format(time);
                               }
                               return Padding(
                                 padding: const EdgeInsets.only(top: 8),
