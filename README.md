@@ -74,7 +74,7 @@ The **ESP32 DevKit V4** serves as the central brain. Below is the exact wiring c
 | Component | Type | ESP32 Pin | Notes |
 | :--- | :--- | :--- | :--- |
 | **SHT31 SDA** | I2C | `GPIO 21` | Temperature & Humidity |
-| **SHT31 SCL** | I2C | `GPIO 22` | |
+| **SHT31 SCL** | I2C | `GPIO 22` | Temperature & Humidity |
 | **MQ135** | Analog In | `GPIO 34` | Ammonia Sensor |
 | **Water Sensor** | Analog In | `GPIO 35` | Liquid Level Probe |
 | **Load Cell (DT)** | Digital In | `GPIO 18` | HX711 Data |
