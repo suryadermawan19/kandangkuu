@@ -278,8 +278,8 @@ class FirebaseService {
   }) async {
     try {
       Map<String, dynamic> updates = {};
-      if (isFanOn != null) updates['fan_status'] = isFanOn;
-      if (isHeaterOn != null) updates['heater_status'] = isHeaterOn;
+      if (isFanOn != null) updates['is_fan_on'] = isFanOn;
+      if (isHeaterOn != null) updates['is_heater_on'] = isHeaterOn;
       if (isAutoMode != null) updates['is_auto_mode'] = isAutoMode;
 
       if (updates.isNotEmpty) {

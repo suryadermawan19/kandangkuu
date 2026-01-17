@@ -2,8 +2,8 @@
 #define SECRETS_H
 
 // Ganti dengan kredensial WiFi kamu
-const char *WIFI_SSID = "NAMA_WIFI_KAMU";
-const char *WIFI_PASSWORD = "PASSWORD_WIFI_KAMU";
+const char *WIFI_SSID = "Nokia";
+const char *WIFI_PASSWORD = "surya1234";
 
 // Project ID Firebase kamu
 const char *PROJECT_ID = "kandangku-8f67c";
